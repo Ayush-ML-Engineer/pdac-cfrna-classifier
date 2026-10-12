@@ -1,0 +1,24 @@
+# Raw integer counts (56,607 genes x 248 samples; ~16.6k all-zero genes).
+name: moore2025_raw
+description: Moore et al. 2025 cfRNA PDAC, raw counts, CEDAR (discovery) + BCC (validation)
+matrix:
+  path: ${PDAC_DATA_ROOT}/pdac_genecount.csv
+  orientation: genes_by_samples
+metadata:
+  path: ${PDAC_DATA_ROOT}/pdac_meta.csv
+  sample_id_column: SeqID
+  label_column: Pancreatitis_type   # NB: holds the diagnosis for every row
+  cohort_column: Cohort
+# Default task: PDAC vs everything else (paper's "PDAC vs All").
+class_map:
+  PDAC: 1
+  Benign Pancreas: 0
+  Pancreatitis: 0
+  IPMN: 0
+  Islet Cell Tumor: 0
+  Cancer_other: 0
+positive_class: 1
+unmapped: error
+split:
+  train_cohorts: [CEDAR]
+  validation_cohorts: [BCC]

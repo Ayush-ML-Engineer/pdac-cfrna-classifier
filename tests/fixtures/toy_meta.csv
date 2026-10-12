@@ -1,0 +1,13 @@
+,SeqID,Cohort,Dx
+0,S0,CEDAR,PDAC
+1,S1,CEDAR,Benign Pancreas
+2,S2,CEDAR,Pancreatitis
+3,S3,CEDAR,IPMN
+4,S4,CEDAR,PDAC
+5,S5,CEDAR,Benign Pancreas
+6,S6,CEDAR,Pancreatitis
+7,S7,CEDAR,IPMN
+8,S8,BCC,PDAC
+9,S9,BCC,Benign Pancreas
+10,S10,BCC,Pancreatitis
+11,S11,BCC,IPMN

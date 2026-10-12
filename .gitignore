@@ -1,0 +1,43 @@
+# --- data: clinical, never commit ---
+data/*
+!data/.gitkeep
+*.csv
+*.tsv
+*.parquet
+*.h5
+*.rds
+!tests/fixtures/*.csv
+
+# --- experiment outputs ---
+runs/*
+!runs/.gitkeep
+reports/figures/*
+!reports/figures/.gitkeep
+!reports/figures/final_*
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv/
+.python-version.local
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- notebooks ---
+.ipynb_checkpoints/
+
+# --- secrets / local ---
+.env
+*.local.yaml
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

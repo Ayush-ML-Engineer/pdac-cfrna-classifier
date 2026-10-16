@@ -89,3 +89,13 @@ def load_dataset(cfg: DatasetConfig) -> Dataset:
     y = labels.map(cfg.class_map).astype(int).rename("y")
 
     return Dataset(X=X, y=y, meta=meta, config=cfg)
+
+
+def apply_task(cfg: DatasetConfig, class_map: dict[str, int], unmapped: str) -> DatasetConfig:
+    """Return a copy of the dataset config with the experiment's task swapped in.
+
+    The dataset YAML supplies a default class_map; an experiment overrides it
+    (and the 'unmapped' policy) without editing the dataset file.
+    """
+    updated = {**cfg.model_dump(), "class_map": class_map, "unmapped": unmapped}
+    return DatasetConfig.model_validate(updated)  # re-validate the combined result

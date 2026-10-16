@@ -1,16 +1,18 @@
-"""Replicate the paper's DE gene selection on the CEDAR (training) cohort.
+"""Run the paper's DE gene selection as described by an experiment YAML.
 
 Run from the repo root:
-    uv run python scripts/replicate_de_selection.py
-    uv run python scripts/replicate_de_selection.py --log-variance
+    uv run python scripts/replicate_de_selection.py de_selection_pdac_vs_all
+(the argument is a file name in configs/experiments/, without .yaml, or a path)
 """
 
 from __future__ import annotations
 
 import argparse
 
-from pdac_cfrna.config import REPO_ROOT, load_dataset_config
-from pdac_cfrna.data import load_dataset
+from pdac_cfrna.config import load_dataset_config
+from pdac_cfrna.data import apply_task, load_dataset
+from pdac_cfrna.experiment import load_experiment_config, resolve_experiment_path
+from pdac_cfrna.runs import tracked_run
 from pdac_cfrna.selection import select_de_genes
 
 # Genes named in the paper's Fig. 3a / Results (24 of the 29; direction as reported).
@@ -34,52 +36,54 @@ PAPER_OTHER = {
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", default="moore2025_cfnorm")
-    parser.add_argument("--min-variance", type=float, default=1.0)
-    parser.add_argument("--alpha", type=float, default=0.05)
-    parser.add_argument(
-        "--log-variance",
-        action="store_true",
-        help="compute the variance filter on log1p(counts)",
-    )
-    parser.add_argument("--out", default="data/interim/de_genes_cedar.csv")
+    parser.add_argument("experiment", help="experiment name or path to its YAML file")
     args = parser.parse_args()
 
-    # 1. Load the dataset and keep ONLY the training cohort (CEDAR). BCC is never touched.
-    ds = load_dataset(load_dataset_config(args.dataset))
-    X_train = ds.X[ds.train_mask]
-    y_train = ds.y[ds.train_mask]
-    print(f"Training samples: {len(y_train)} (PDAC: {int(y_train.sum())})")
+    # Validate the experiment BEFORE taking the lock or creating a run folder.
+    yaml_path = resolve_experiment_path(args.experiment)
+    exp = load_experiment_config(yaml_path)
 
-    # 2. Variance filter -> Wilcoxon -> BH -> flag.
-    table = select_de_genes(
-        X_train,
-        y_train,
-        min_variance=args.min_variance,
-        alpha=args.alpha,
-        log_before_variance=args.log_variance,
-    )
-    selected = table[table["significant"]]
-    print(f"Genes tested after variance filter: {len(table)}")
-    print(f"Genes with q <= {args.alpha}: {len(selected)}")
+    with tracked_run(exp, yaml_path) as run:
+        # 1. Dataset config + the experiment's task override.
+        task = exp.resolved_task
+        dataset_cfg = apply_task(load_dataset_config(exp.dataset), task.class_map, task.unmapped)
+        ds = load_dataset(dataset_cfg)
 
-    # 3. Save the full table.
-    out_path = REPO_ROOT / args.out
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    table.to_csv(out_path, index_label="gene")
-    print(f"Saved: {out_path}")
+        # 2. Training cohort only (CEDAR). The validation cohort is never touched here.
+        X_train = ds.X[ds.train_mask]
+        y_train = ds.y[ds.train_mask]
+        print(f"Training samples: {len(y_train)} (PDAC: {int(y_train.sum())})")
 
-    # 4. Compare with the paper's named genes.
-    found = set(selected.index)
-    named = PAPER_UP | PAPER_DOWN | PAPER_OTHER
-    print(f"\nPaper genes recovered: {len(found & named)} of {len(named)}")
-    print("  missing:", sorted(named - found))
-    for label, expected_dir, genes in (("up", "up", PAPER_UP), ("down", "down", PAPER_DOWN)):
-        hits = [g for g in genes if g in found]
-        correct = [g for g in hits if selected.loc[g, "direction"] == expected_dir]
-        print(f"  expected {label}: found {len(hits)}/{len(genes)}, right direction {len(correct)}")
-    print("\nTop 10 genes:")
-    print(selected.head(10).to_string())
+        # 3. Variance filter -> Wilcoxon -> BH -> flag.
+        table = select_de_genes(
+            X_train,
+            y_train,
+            min_variance=exp.variance_cutoff,
+            alpha=exp.alpha,
+            log_before_variance=exp.log_variance,
+        )
+        selected = table[table["significant"]]
+        table.to_csv(run.dir / "de_genes.csv", index_label="gene")
+
+        # 4. Compare with the paper's named genes (most meaningful for pdac_vs_all).
+        found = set(selected.index)
+        named = PAPER_UP | PAPER_DOWN | PAPER_OTHER
+        up_ok = [g for g in PAPER_UP & found if selected.loc[g, "direction"] == "up"]
+        down_ok = [g for g in PAPER_DOWN & found if selected.loc[g, "direction"] == "down"]
+        run.extra.update(
+            n_train_samples=len(y_train),
+            n_train_pdac=int(y_train.sum()),
+            n_genes_tested=len(table),
+            n_significant=len(selected),
+            paper_genes_recovered=len(found & named),
+            paper_genes_named=len(named),
+            paper_direction_correct=len(up_ok) + len(down_ok),
+        )
+
+        print(f"Genes tested after variance filter: {len(table)}")
+        print(f"Genes with q <= {exp.alpha}: {len(selected)}")
+        print(f"Paper genes recovered: {len(found & named)} of {len(named)}")
+        print(f"Run folder: {run.dir}")
 
 
 if __name__ == "__main__":

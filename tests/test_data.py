@@ -59,3 +59,13 @@ def test_missing_file_gives_clear_error(toy_cfg, tmp_path):
     )
     with pytest.raises(FileNotFoundError, match="nope.csv"):
         load_dataset(cfg)
+
+
+def test_apply_task_overrides_class_map_and_drops_other_labels(toy_cfg):
+    from pdac_cfrna.data import apply_task
+
+    cfg = apply_task(toy_cfg, {"PDAC": 1, "Benign Pancreas": 0}, "drop")
+    ds = load_dataset(cfg)
+    assert set(ds.y.unique()) == {0, 1}
+    assert ds.X.shape[0] == 6  # 3 PDAC + 3 benign of the 12 toy samples
+    assert toy_cfg.class_map != cfg.class_map  # original config is untouched

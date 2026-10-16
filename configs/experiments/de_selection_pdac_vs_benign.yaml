@@ -1,0 +1,8 @@
+name: de_selection_pdac_vs_benign
+description: Paper-style DE gene selection (variance filter, Wilcoxon, BH) on CEDAR, PDAC vs benign only
+dataset: moore2025_cfnorm
+task: pdac_vs_benign
+variance_cutoff: 1.0
+alpha: 0.05
+log_variance: false
+seed: 42

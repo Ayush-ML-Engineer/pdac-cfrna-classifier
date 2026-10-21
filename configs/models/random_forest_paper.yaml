@@ -1,0 +1,6 @@
+name: random_forest_paper
+description: Random forest settings from Moore et al. 2025 (Methods, Machine learning experiments)
+n_estimators: 250
+max_features: 1
+min_samples_leaf: 1
+bootstrap: true

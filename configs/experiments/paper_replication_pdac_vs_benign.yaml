@@ -1,0 +1,12 @@
+name: paper_replication_pdac_vs_benign
+description: Paper classifier (log1p, SMOTE, random forest) trained on CEDAR, tested on BCC, task pdac_vs_benign
+dataset: moore2025_cfnorm
+task: pdac_vs_benign
+gene_selection_task: pdac_vs_all
+model: random_forest_paper
+variance_cutoff: 1.0
+alpha: 0.05
+log_variance: false
+n_synthetic_pdac: 100
+n_seeds: 10
+seed: 0

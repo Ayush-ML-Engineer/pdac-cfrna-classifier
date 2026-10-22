@@ -14,6 +14,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from pdac_cfrna.config import REPO_ROOT
+from pdac_cfrna.model_config import resolve_model_path
 
 EXPERIMENT_CONFIG_DIR = REPO_ROOT / "configs" / "experiments"
 
@@ -62,13 +63,31 @@ class ExperimentConfig(BaseModel):
     variance_cutoff: float = Field(default=1.0, ge=0)
     alpha: float = Field(default=0.05, gt=0, lt=1)
     log_variance: bool = False
+
+    # The first seed. A run that uses n_seeds seeds uses seed, seed+1, ... seed+n_seeds-1.
     seed: int = Field(default=42, ge=0)
 
-    @field_validator("task")
+    # Which task's labels are used to pick the genes. The paper picks them ONCE with PDAC vs all
+    # and reuses the same genes for every task, so this stays "pdac_vs_all" in the replications.
+    gene_selection_task: str = "pdac_vs_all"
+    model: str = "random_forest_paper"  # name of a file in configs/models/, without .yaml
+    n_synthetic_pdac: int = Field(default=100, ge=0)
+    n_seeds: int = Field(default=10, ge=1)
+
+    @field_validator("task", "gene_selection_task")
     @classmethod
     def _task_must_exist(cls, v: str) -> str:
         if v not in TASKS:
             raise ValueError(f"Unknown task {v!r}. Allowed: {sorted(TASKS)}")
+        return v
+
+    @field_validator("model")
+    @classmethod
+    def _model_must_exist(cls, v: str) -> str:
+        try:
+            resolve_model_path(v)
+        except FileNotFoundError as exc:
+            raise ValueError(str(exc)) from exc
         return v
 
     @property

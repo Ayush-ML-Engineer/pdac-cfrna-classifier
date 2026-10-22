@@ -4,6 +4,7 @@ import pytest
 import yaml
 
 from pdac_cfrna.experiment import (
+    EXPERIMENT_CONFIG_DIR,
     TASKS,
     ExperimentConfig,
     load_experiment_config,
@@ -55,6 +56,9 @@ def test_unknown_task_is_rejected_and_lists_allowed_names(tmp_path):
         {"name": "has space"},
         {"name": "bad/slash"},
         {"name": ""},
+        {"gene_selection_task": "random task"},
+        {"n_synthetic_pdac": -1},
+        {"n_seeds": 0},
     ],
 )
 def test_out_of_range_values_are_rejected(tmp_path, bad):
@@ -97,7 +101,38 @@ def test_resolve_experiment_path_finds_shipped_configs_and_rejects_missing():
         resolve_experiment_path("no_such_experiment")
 
 
-def test_shipped_experiment_files_are_valid():
-    for name in ("de_selection_pdac_vs_benign", "de_selection_pdac_vs_all"):
-        cfg = load_experiment_config(resolve_experiment_path(name))
-        assert cfg.name == name
+def test_every_shipped_experiment_file_is_valid_and_named_like_its_file():
+    paths = sorted(EXPERIMENT_CONFIG_DIR.glob("*.yaml"))
+    assert paths, "no experiment files found"
+    for path in paths:
+        cfg = load_experiment_config(path)
+        assert cfg.name == path.stem, f"{path.name}: name inside the file is {cfg.name!r}"
+
+
+def test_new_fields_have_the_documented_defaults():
+    cfg = ExperimentConfig(**_valid())
+    assert cfg.gene_selection_task == "pdac_vs_all"
+    assert cfg.model == "random_forest_paper"
+    assert cfg.n_synthetic_pdac == 100
+    assert cfg.n_seeds == 10
+
+
+def test_new_fields_accept_valid_values_including_zero_synthetic_samples():
+    cfg = ExperimentConfig(
+        **_valid(), n_synthetic_pdac=0, n_seeds=1, gene_selection_task="pdac_vs_benign"
+    )
+    assert cfg.n_synthetic_pdac == 0
+    assert cfg.n_seeds == 1
+    assert cfg.gene_selection_task == "pdac_vs_benign"
+
+
+def test_unknown_gene_selection_task_lists_the_allowed_names(tmp_path):
+    path = _write_yaml(tmp_path, {**_valid(), "gene_selection_task": "random task"})
+    with pytest.raises(ValueError, match="pdac_vs_benign"):
+        load_experiment_config(path)
+
+
+def test_unknown_model_name_is_rejected_when_the_experiment_is_loaded(tmp_path):
+    path = _write_yaml(tmp_path, {**_valid(), "model": "no_such_model"})
+    with pytest.raises(ValueError, match="no_such_model"):
+        load_experiment_config(path)

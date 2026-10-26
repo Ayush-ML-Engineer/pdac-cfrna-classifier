@@ -5,9 +5,12 @@ Tables in this module are genes x samples, as in the paper's R code and CSV file
 
 from __future__ import annotations
 
+from collections.abc import Hashable
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+from scipy.stats import rankdata
 
 FACTOR_COLUMNS = ["Intrinsic", "Extrinsic"]
 
@@ -96,3 +99,94 @@ def load_factors(path: str | Path, tolerance: float = 1e-6) -> pd.DataFrame:
     if ((table["Intrinsic"] + table["Extrinsic"] - 1).abs() > tolerance).any():
         raise ValueError(f"{path.name}: for every gene Intrinsic + Extrinsic must sum to 1")
     return table.astype(float)
+
+
+def tmm_reference_sample(counts: pd.DataFrame) -> Hashable:
+    """Label of the reference sample used by edgeR's TMM.
+
+    Each sample's 75th percentile of (count / library size) is computed; the reference is the
+    sample whose value is closest to the average of those values.
+    """
+    x = counts.loc[(counts > 0).any(axis=1)]
+    f75 = (x / x.sum()).quantile(0.75)
+    return (f75 - f75.mean()).abs().idxmin()
+
+
+def _tmm_factor_vs_reference(
+    obs: np.ndarray, ref: np.ndarray, logratio_trim: float, sum_trim: float
+) -> float:
+    """TMM scale factor of one sample against the reference (both are count vectors)."""
+    n_o, n_r = obs.sum(), ref.sum()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        p_o, p_r = obs / n_o, ref / n_r
+        m = np.log2(p_o / p_r)  # log-ratio of the two proportions
+        a = (np.log2(p_o) + np.log2(p_r)) / 2  # average log expression
+        v = (n_o - obs) / n_o / obs + (n_r - ref) / n_r / ref  # approximate variance of m
+
+    usable = np.isfinite(m) & np.isfinite(a)  # genes counted in both samples
+    m, a, v = m[usable], a[usable], v[usable]
+    n = len(m)
+    if n == 0:
+        raise ValueError("a sample shares no expressed genes with the reference sample")
+
+    lo_m = int(np.floor(n * logratio_trim)) + 1
+    hi_m = n + 1 - lo_m
+    lo_a = int(np.floor(n * sum_trim)) + 1
+    hi_a = n + 1 - lo_a
+    rank_m, rank_a = rankdata(m), rankdata(a)
+    keep = (rank_m >= lo_m) & (rank_m <= hi_m) & (rank_a >= lo_a) & (rank_a <= hi_a)
+    if not keep.any():
+        raise ValueError("no genes left after trimming")
+
+    weights = 1 / v[keep]
+    return float(2 ** (np.sum(m[keep] * weights) / np.sum(weights)))
+
+
+def tmm_scale_factors(
+    counts: pd.DataFrame, logratio_trim: float = 0.3, sum_trim: float = 0.05
+) -> pd.Series:
+    """TMM scale factors (Robinson & Oshlack 2010) as computed by edgeR::calcNormFactors.
+
+    Args:
+        counts: genes x samples, non-negative.
+
+    Returns:
+        One factor per sample (indexed by sample), with a geometric mean of 1. The reference
+        sample's factor is 1 before that final rescaling.
+
+    Raises:
+        ValueError: negative or missing counts, a sample without any counts, or no gene with
+            counts at all.
+    """
+    if counts.isna().any().any() or (counts < 0).any().any():
+        raise ValueError("counts must be non-negative numbers without missing values")
+    x = counts.loc[(counts > 0).any(axis=1)]  # drop genes that are zero in every sample
+    if x.empty:
+        raise ValueError("no gene has counts in any sample")
+    empty = x.columns[x.sum() == 0]
+    if len(empty) > 0:
+        raise ValueError(f"samples without any counts: {list(empty)}")
+
+    ref = tmm_reference_sample(x)
+    ref_counts = x[ref].to_numpy(dtype=float)
+    factors = {
+        sample: 1.0
+        if sample == ref
+        else _tmm_factor_vs_reference(
+            x[sample].to_numpy(dtype=float), ref_counts, logratio_trim, sum_trim
+        )
+        for sample in x.columns
+    }
+    f = pd.Series(factors, index=x.columns, dtype=float)
+    geometric_mean = float(np.exp(np.log(f).mean()))
+    return f / geometric_mean  # now the geometric mean is 1
+
+
+def tmm(counts: pd.DataFrame) -> pd.DataFrame:
+    """Divide every sample (column) by its TMM scale factor."""
+    factors = tmm_scale_factors(counts)
+    return pd.DataFrame(
+        counts.to_numpy() / factors.to_numpy()[None, :],
+        index=counts.index,
+        columns=counts.columns,
+    )

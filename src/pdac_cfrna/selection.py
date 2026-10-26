@@ -17,7 +17,7 @@ def filter_variance(X: pd.DataFrame, min_variance: float = 1.0) -> pd.DataFrame:
     Column order is preserved. If no gene passes, an empty-column table is returned.
     """
     variances = X.var(axis=0, ddof=1)
-    return X.loc[:, variances >= min_variance]
+    return X.loc[:, variances > min_variance]
 
 
 def wilcoxon_per_gene(X: pd.DataFrame, y: pd.Series) -> pd.DataFrame:

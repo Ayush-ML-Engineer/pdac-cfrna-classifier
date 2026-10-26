@@ -97,7 +97,7 @@ def main() -> None:
         print(f"{exp.name}: {len(genes)} genes, train {len(y_train)}, test {len(y_test)}")
         spread = f" +/- {std_auc:.3f}" if std_auc is not None else ""
         print(f"  AUC over {len(seeds)} seeds: {mean_auc:.3f}{spread}")
-        print(f"  Seed-averaged score: AUC {avg_auc:.3f} (95% CI {ci_low:.3f} to {ci_high:.3f})")
+        print(f"  Seed-averaged score: AUC {avg_auc:.3f} (95% CI = {ci_low:.3f} to {ci_high:.3f})")
         print(f"  Run folder: {run.dir}")
 
 

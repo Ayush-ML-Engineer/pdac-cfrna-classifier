@@ -1,8 +1,16 @@
+import os
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from pdac_cfrna.normalization import cf_norm
+from pdac_cfrna.config import load_env
+from pdac_cfrna.normalization import cf_norm, load_factors
+
+load_env()  # reads .env so PDAC_DATA_ROOT is known to the slow test below
+
+GOOD = ",Intrinsic,Extrinsic\ngA,0.9,0.1\ngB,,\ngC,0.25,0.75\n"
 
 
 def _counts() -> pd.DataFrame:
@@ -84,3 +92,77 @@ def test_a_sample_whose_counts_fall_only_on_zero_weight_genes_raises():
     counts["s2"] = [0, 0, 70]  # s2 has counts only in g3
     with pytest.raises(ValueError, match="s2"):
         cf_norm(counts, factors)
+
+
+# ---------- load_factors ----------
+def _write_factors(tmp_path: Path, text: str) -> Path:
+    path = tmp_path / "factors.csv"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_load_factors_drops_empty_rows_and_keeps_order_and_values(tmp_path):
+    out = load_factors(_write_factors(tmp_path, GOOD))
+    assert list(out.index) == ["gA", "gC"]
+    assert list(out.columns) == ["Intrinsic", "Extrinsic"]
+    np.testing.assert_allclose(out["Intrinsic"].to_numpy(), [0.9, 0.25])
+    np.testing.assert_allclose(out["Extrinsic"].to_numpy(), [0.1, 0.75])
+
+
+def test_load_factors_ignores_extra_columns(tmp_path):
+    out = load_factors(_write_factors(tmp_path, ",Intrinsic,Extrinsic,spin_cpm\ngA,0.9,0.1,5.0\n"))
+    assert list(out.columns) == ["Intrinsic", "Extrinsic"]
+
+
+def test_load_factors_rejects_the_reference_only_file_layout(tmp_path):
+    # spin_data_intrinsic.csv calls the second column "Batch", not "Extrinsic".
+    with pytest.raises(ValueError, match="Extrinsic"):
+        load_factors(_write_factors(tmp_path, ",Intrinsic,Batch\ngA,0.9,0.1\n"))
+
+
+def test_load_factors_missing_file_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        load_factors(tmp_path / "nope.csv")
+
+
+def test_load_factors_rejects_rows_that_do_not_sum_to_one(tmp_path):
+    with pytest.raises(ValueError, match="sum to 1"):
+        load_factors(_write_factors(tmp_path, ",Intrinsic,Extrinsic\ngA,0.9,0.2\n"))
+
+
+def test_load_factors_rejects_values_outside_zero_one(tmp_path):
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        load_factors(_write_factors(tmp_path, ",Intrinsic,Extrinsic\ngA,1.2,-0.2\n"))
+
+
+def test_load_factors_rejects_duplicate_gene_names(tmp_path):
+    with pytest.raises(ValueError, match="duplicate"):
+        load_factors(_write_factors(tmp_path, ",Intrinsic,Extrinsic\ngA,0.9,0.1\ngA,0.5,0.5\n"))
+
+
+def test_load_factors_rejects_a_gene_with_only_one_factor(tmp_path):
+    with pytest.raises(ValueError, match="no Extrinsic"):
+        load_factors(_write_factors(tmp_path, ",Intrinsic,Extrinsic\ngA,0.9,\n"))
+
+
+def test_load_factors_rejects_a_file_without_any_factors(tmp_path):
+    with pytest.raises(ValueError, match="no gene has factors"):
+        load_factors(_write_factors(tmp_path, ",Intrinsic,Extrinsic\ngA,,\ngB,,\n"))
+
+
+def test_load_factors_rejects_non_numeric_values(tmp_path):
+    with pytest.raises(ValueError, match="numeric"):
+        load_factors(_write_factors(tmp_path, ",Intrinsic,Extrinsic\ngA,high,low\n"))
+
+
+def test_loaded_factors_can_be_used_by_cf_norm(tmp_path):
+    path = _write_factors(tmp_path, ",Intrinsic,Extrinsic\ng1,0.9,0.1\ng2,0.5,0.5\ng3,0.1,0.9\n")
+    out = cf_norm(_counts(), load_factors(path))
+    pd.testing.assert_frame_equal(out, EXPECTED, atol=1e-4, rtol=0)
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not os.environ.get("PDAC_DATA_ROOT"), reason="needs the real data folder")
+def test_real_updated_intrinsic_file_has_39984_usable_genes():
+    out = load_factors(Path(os.environ["PDAC_DATA_ROOT"]) / "updated_intrinsic.csv")
+    assert len(out) == 39984  # 56,607 rows minus 16,623 genes without factors

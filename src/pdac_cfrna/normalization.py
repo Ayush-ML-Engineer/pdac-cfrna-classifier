@@ -190,3 +190,42 @@ def tmm(counts: pd.DataFrame) -> pd.DataFrame:
         index=counts.index,
         columns=counts.columns,
     )
+
+
+def normalize_counts(counts: pd.DataFrame, factors: pd.DataFrame) -> pd.DataFrame:
+    """The paper's normalization: cf_norm followed by TMM (main_script.R, line 43).
+
+    Args:
+        counts: raw counts, genes in rows and samples in columns, at least two samples.
+        factors: cleaned factor table, normally from load_factors().
+
+    Returns:
+        Normalized table with the genes shared with the factor table, in its order.
+
+    LIMITATION: both steps use the other samples in `counts` (a median for cf_norm, a reference
+    sample for TMM), so a sample's result depends on which samples are normalized together.
+
+    Raises:
+        TypeError: counts is not a DataFrame.
+        ValueError: fewer than two samples, repeated gene or sample names, non-numeric,
+            missing or negative counts, or a factor table without Intrinsic/Extrinsic columns.
+    """
+    if not isinstance(counts, pd.DataFrame):
+        raise TypeError("counts must be a pandas DataFrame (genes x samples)")
+    if counts.shape[1] < 2:
+        raise ValueError("at least 2 samples are needed to normalize a batch")
+    if not counts.index.is_unique:
+        raise ValueError("gene names must be unique")
+    if not counts.columns.is_unique:
+        raise ValueError("sample names must be unique")
+    if not all(pd.api.types.is_numeric_dtype(counts[c]) for c in counts.columns):
+        raise ValueError("counts must contain numbers only")
+    if counts.isna().any().any():
+        raise ValueError("counts must not contain missing values")
+    if (counts < 0).any().any():
+        raise ValueError("counts must not be negative")
+    missing = [c for c in FACTOR_COLUMNS if c not in factors.columns]
+    if missing:
+        raise ValueError(f"factors lack the column(s) {missing}")
+
+    return tmm(cf_norm(counts, factors))

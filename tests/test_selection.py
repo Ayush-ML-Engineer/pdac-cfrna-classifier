@@ -12,16 +12,15 @@ from pdac_cfrna.selection import (
 
 # ---------- Chunk A: variance filter ----------
 def _variance_table() -> pd.DataFrame:
-    # Sample variance (divide by n-1) of each column, worked by hand:
-    #   constant  [3, 3, 3]    -> 0
-    #   at_cutoff [1, 2, 3]    -> mean 2, squared deviations 1+0+1 = 2, 2/(3-1) = 1.0 exactly
-    #                             (population variance would be 2/3, below the cutoff)
-    #   high      [0, 10, 20]  -> mean 10, squared deviations 100+0+100, 200/2 = 100
-    #   low       [0, .5, 1]   -> mean .5, squared deviations .25+0+.25, .5/2 = 0.25
+    # Sample variance (divide by n-1), worked by hand:
+    #   constant [3,3,3] -> 0 | at_cutoff [1,2,3] -> 2/(3-1) = 1.0 exactly
+    #   between [0,1.1,2.2] -> 1.21 (population variance would be 0.81)
+    #   high [0,10,20] -> 100 | low [0,.5,1] -> 0.25
     return pd.DataFrame(
         {
             "constant": [3.0, 3.0, 3.0],
             "at_cutoff": [1.0, 2.0, 3.0],
+            "between": [0.0, 1.1, 2.2],
             "high": [0.0, 10.0, 20.0],
             "low": [0.0, 0.5, 1.0],
         },
@@ -29,26 +28,24 @@ def _variance_table() -> pd.DataFrame:
     )
 
 
-def test_filter_variance_keeps_only_genes_at_or_above_cutoff():
+def test_filter_variance_keeps_only_genes_strictly_above_the_cutoff():
     out = filter_variance(_variance_table(), min_variance=1.0)
-    assert list(out.columns) == ["at_cutoff", "high"]
+    assert list(out.columns) == ["between", "high"]  # at_cutoff (variance exactly 1) is removed
 
 
 def test_filter_variance_uses_sample_variance_not_population():
-    # Population variance of at_cutoff is 2/3, so it would be wrongly dropped.
-    out = filter_variance(_variance_table(), min_variance=1.0)
-    assert "at_cutoff" in out.columns
+    # Sample variance 1.21 passes; population variance 0.81 would wrongly remove it.
+    assert "between" in filter_variance(_variance_table(), min_variance=1.0).columns
 
 
 def test_filter_variance_keeps_original_column_order_and_samples():
     out = filter_variance(_variance_table(), min_variance=0.1)
-    assert list(out.columns) == ["at_cutoff", "high", "low"]
+    assert list(out.columns) == ["at_cutoff", "between", "high", "low"]  # only "constant" is gone
     assert list(out.index) == ["s1", "s2", "s3"]
 
 
 def test_filter_variance_returns_empty_table_when_all_genes_fail():
-    out = filter_variance(_variance_table(), min_variance=1000.0)
-    assert out.shape == (3, 0)
+    assert filter_variance(_variance_table(), min_variance=1000.0).shape == (3, 0)
 
 
 # ---------- Chunk B: Wilcoxon per gene ----------
@@ -145,10 +142,18 @@ def test_select_de_genes_flags_significance_on_adjusted_p():
     out = select_de_genes(X, y, alpha=0.05)
     assert out.loc["perfect_up", "significant"]
     assert not out.loc["noise", "significant"]
-    assert (out["significant"] == (out["q_value"] <= 0.05)).all()
+    assert (out["significant"] == (out["q_value"] < 0.05)).all()
 
 
 def test_select_de_genes_with_no_surviving_genes_returns_empty_table():
     X, y = _selection_inputs()
     out = select_de_genes(X, y, min_variance=1e9)
     assert out.empty
+
+
+def test_a_gene_whose_q_value_equals_alpha_is_not_significant():
+    X, y = _selection_inputs()
+    q = select_de_genes(X, y).loc["perfect_up", "q_value"]
+    out = select_de_genes(X, y, alpha=q)  # alpha exactly equal to that gene's q_value
+    assert not out.loc["perfect_up", "significant"]
+    assert select_de_genes(X, y, alpha=q * 1.0001).loc["perfect_up", "significant"]

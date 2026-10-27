@@ -12,7 +12,7 @@ from scipy import stats
 
 
 def filter_variance(X: pd.DataFrame, min_variance: float = 1.0) -> pd.DataFrame:
-    """Keep genes (columns) whose SAMPLE variance (n-1 divisor) is >= min_variance.
+    """Keep genes (columns) whose SAMPLE variance (n-1 divisor) is > min_variance.
 
     Column order is preserved. If no gene passes, an empty-column table is returned.
     """
@@ -70,7 +70,7 @@ def select_de_genes(
 
     table = wilcoxon_per_gene(X, y)
     table["q_value"] = adjust_pvalues(table["p_value"])
-    table["significant"] = table["q_value"] <= alpha
+    table["significant"] = table["q_value"] < alpha
     table = table[["p_value", "q_value", "auc", "direction", "significant"]]
     return table.sort_values("q_value", kind="stable")
 

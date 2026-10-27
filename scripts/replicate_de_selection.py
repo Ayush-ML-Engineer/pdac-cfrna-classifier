@@ -81,7 +81,7 @@ def main() -> None:
         )
 
         print(f"Genes tested after variance filter: {len(table)}")
-        print(f"Genes with q <= {exp.alpha}: {len(selected)}")
+        print(f"Genes with q < {exp.alpha}: {len(selected)}")
         print(f"Paper genes recovered: {len(found & named)} of {len(named)}")
         print(f"Run folder: {run.dir}")
 

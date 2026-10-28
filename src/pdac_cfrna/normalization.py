@@ -229,3 +229,23 @@ def normalize_counts(counts: pd.DataFrame, factors: pd.DataFrame) -> pd.DataFram
         raise ValueError(f"factors lack the column(s) {missing}")
 
     return tmm(cf_norm(counts, factors))
+
+
+def cpm(counts: pd.DataFrame) -> pd.DataFrame:
+    """Counts per million: every sample (column) divided by its total, times 1,000,000.
+
+    Raises:
+        ValueError: missing or negative counts, or a sample whose total is zero.
+    """
+    if counts.isna().any().any():
+        raise ValueError("counts must not contain missing values")
+    if (counts < 0).any().any():
+        raise ValueError("counts must not be negative")
+
+    totals = counts.sum()
+    empty = totals.index[totals == 0]
+
+    if len(empty) > 0:
+        raise ValueError(f"samples with a total of zero: {list(empty)}")
+
+    return counts / totals * 1e6

@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from pdac_cfrna.config import load_env
-from pdac_cfrna.normalization import cf_norm, load_factors
+from pdac_cfrna.normalization import cf_norm, cpm, load_factors
 
 load_env()  # reads .env so PDAC_DATA_ROOT is known to the slow test below
 
@@ -166,3 +166,53 @@ def test_loaded_factors_can_be_used_by_cf_norm(tmp_path):
 def test_real_updated_intrinsic_file_has_39984_usable_genes():
     out = load_factors(Path(os.environ["PDAC_DATA_ROOT"]) / "updated_intrinsic.csv")
     assert len(out) == 39984  # 56,607 rows minus 16,623 genes without factors
+
+
+def _cpm_data() -> pd.DataFrame:
+    return pd.DataFrame([[1, 3], [3, 1]], index=["g1", "g2"], columns=["s1", "s2"])
+
+
+def test_cpm_matches_the_hand_worked_example():
+    expected = pd.DataFrame(
+        [[250000.0, 750000.0], [750000.0, 250000.0]], index=["g1", "g2"], columns=["s1", "s2"]
+    )
+    pd.testing.assert_frame_equal(cpm(_cpm_data()), expected)
+
+
+def test_every_sample_sums_to_one_million():
+    rng = np.random.default_rng(0)
+    counts = pd.DataFrame(rng.poisson(20, (100, 5)) + 1)
+    np.testing.assert_allclose(cpm(counts).sum().to_numpy(), 1e6)
+
+
+def test_a_samples_cpm_does_not_depend_on_its_sequencing_depth():
+    counts = _cpm_data()
+    deeper = counts.copy()
+    deeper["s1"] = deeper["s1"] * 10
+    pd.testing.assert_series_equal(cpm(counts)["s1"], cpm(deeper)["s1"])
+
+
+def test_cpm_keeps_labels_and_does_not_modify_the_input():
+    counts = _cpm_data()
+    before = counts.copy()
+    out = cpm(counts)
+    assert list(out.index) == ["g1", "g2"] and list(out.columns) == ["s1", "s2"]
+    pd.testing.assert_frame_equal(counts, before)
+
+
+def test_cpm_of_a_sample_with_a_total_of_zero_raises_and_is_named():
+    counts = _cpm_data()
+    counts["s2"] = 0
+    with pytest.raises(ValueError, match="s2"):
+        cpm(counts)
+
+
+def test_cpm_rejects_negative_and_missing_counts():
+    negative = _cpm_data()
+    negative.iloc[0, 0] = -1
+    missing = _cpm_data().astype(float)
+    missing.iloc[0, 0] = np.nan
+    with pytest.raises(ValueError, match="negative"):
+        cpm(negative)
+    with pytest.raises(ValueError, match="missing"):
+        cpm(missing)

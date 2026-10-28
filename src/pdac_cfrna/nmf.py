@@ -8,6 +8,12 @@ which sum to 1 for every sample.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
+
+from pdac_cfrna.normalization import cpm
+
+PLATELET_GENES = ["PF4", "PPBP", "MT-ND4", "MT-CO3", "TAGLN2", "TM2D2", "CA2", "IFRD1"]
+INTRINSIC_GENES = ["ALB", "APOB", "C3", "CP", "EEF1A1", "RPL26", "RPS21", "CTSB"]
 
 
 def _update_h(H: np.ndarray, W: np.ndarray, Y: np.ndarray) -> np.ndarray:
@@ -81,3 +87,46 @@ def nmf(
 
     assert best is not None  # reps >= 1
     return best[1], best[2], best[0]
+
+
+def fit_reference_factors(
+    counts: pd.DataFrame,
+    platelet_genes: list[str] = PLATELET_GENES,
+    intrinsic_genes: list[str] = INTRINSIC_GENES,
+    reps: int = 5,
+    seed: int = 0,
+) -> pd.DataFrame:
+    """Learn each gene's intrinsic and extrinsic (batch) fraction from healthy reference samples.
+
+    Runs the NMF on the CPM-normalized counts (genes x samples), turns W into per-gene fractions
+    and names the two factors: the one carrying the smaller share of the platelet marker genes is
+    "Intrinsic". Genes that are zero in every sample keep NaN rows, as in the paper's file.
+
+    Returns:
+        Table indexed by gene with columns "Intrinsic" and "Extrinsic" (rows sum to 1 or are NaN).
+
+    Raises:
+        ValueError: a marker gene is missing from the counts, the platelet markers do not
+            separate the two factors, or the intrinsic markers contradict the platelet markers.
+    """
+    missing = [g for g in [*platelet_genes, *intrinsic_genes] if g not in counts.index]
+    if missing:
+        raise ValueError(f"marker genes missing from the counts: {missing}")
+
+    W, _, _ = nmf(cpm(counts).to_numpy(), n_factors=2, reps=reps, seed=seed)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        fractions = pd.DataFrame(W / W.sum(axis=1, keepdims=True), index=counts.index)
+
+    platelet_share = fractions.loc[platelet_genes].sum()  # NaN rows count as 0
+    if np.isclose(platelet_share.iloc[0], platelet_share.iloc[1]):
+        raise ValueError("the platelet marker genes do not separate the two factors")
+
+    fractions = fractions.iloc[:, np.argsort(platelet_share.to_numpy())]
+    fractions.columns = pd.Index(["Intrinsic", "Extrinsic"])
+
+    intrinsic_share = fractions.loc[intrinsic_genes].sum()
+    if intrinsic_share["Intrinsic"] <= intrinsic_share["Extrinsic"]:
+        raise ValueError("cannot tell which factor is which: the marker gene lists disagree")
+
+    return fractions

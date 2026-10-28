@@ -1,0 +1,24 @@
+# cf-normalized counts shared by senior (39,984 genes x 248 samples).
+name: processed_norm
+description: Processed normalized file after NMF and cf-norm + TMM normalization CEDAR (discovery) + BCC (validation)
+matrix:
+  path: ${PROCESSED_DATA_PATH}/normalized.csv
+  orientation: genes_by_samples
+metadata:
+  path: ${PDAC_DATA_ROOT}/pdac_meta.csv
+  sample_id_column: SeqID
+  label_column: Pancreatitis_type   # NB: holds the diagnosis for every row
+  cohort_column: Cohort
+# Default task: PDAC vs everything else (paper's "PDAC vs All").
+class_map:
+  PDAC: 1
+  Benign Pancreas: 0
+  Pancreatitis: 0
+  IPMN: 0
+  Islet Cell Tumor: 0
+  Cancer_other: 0
+positive_class: 1
+unmapped: error
+split:
+  train_cohorts: [CEDAR]
+  validation_cohorts: [BCC]

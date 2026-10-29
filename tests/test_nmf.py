@@ -132,3 +132,51 @@ def test_reference_data_error_matches_the_value_found_on_the_authors_data():
         assert W.shape == (56609, 2) and H.shape == (2, 70)
         assert recon == pytest.approx(0.3818, abs=1e-3)
         np.testing.assert_allclose(H.sum(axis=0), 1.0)
+
+
+# ---------- frozen rows ----------
+def _fixed_example() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    Y, w_true, _ = _synthetic()
+    rows = np.arange(0, 60)
+    return Y, rows, w_true[rows]  # the true profiles of the first 60 genes
+
+
+def test_frozen_rows_stay_exactly_as_given():
+    Y, rows, values = _fixed_example()
+    W, H, _ = nmf(Y, reps=2, fixed_rows=rows, fixed_values=values)
+    np.testing.assert_array_equal(W[rows], values)
+    np.testing.assert_allclose(H.sum(axis=0), 1.0)
+
+
+def test_freezing_the_true_profiles_of_some_genes_still_reconstructs_the_data():
+    Y, rows, values = _fixed_example()
+    _, _, recon = nmf(Y, fixed_rows=rows, fixed_values=values)
+    assert recon < 0.03
+
+
+def test_rows_and_values_must_be_given_together():
+    Y, rows, values = _fixed_example()
+    with pytest.raises(ValueError, match="together"):
+        nmf(Y, fixed_rows=rows)
+    with pytest.raises(ValueError, match="together"):
+        nmf(Y, fixed_values=values)
+
+
+@pytest.mark.parametrize(
+    "rows, values",
+    [
+        (np.array([[0, 1]]), np.ones((2, 2))),  # not 1-D
+        (np.array([0.0, 1.0]), np.ones((2, 2))),  # not integer positions
+        (np.array([-1, 1]), np.ones((2, 2))),  # negative position
+        (np.array([0, 300]), np.ones((2, 2))),  # out of range (300 genes)
+        (np.array([1, 1]), np.ones((2, 2))),  # repeated
+        (np.array([0, 1]), np.ones((3, 2))),  # wrong number of value rows
+        (np.array([0, 1]), np.ones((2, 3))),  # wrong number of factors
+        (np.array([0, 1]), -np.ones((2, 2))),  # negative values
+        (np.array([0, 1]), np.full((2, 2), np.nan)),  # missing values
+    ],
+)
+def test_invalid_frozen_rows_are_rejected(rows, values):
+    Y, _, _ = _synthetic()
+    with pytest.raises(ValueError):
+        nmf(Y, fixed_rows=rows, fixed_values=values)

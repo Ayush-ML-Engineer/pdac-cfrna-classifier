@@ -1,0 +1,12 @@
+name: paper_replication_ownfactors_pdac_vs_all
+description: Paper classifier from RAW counts (normalized at load time with the factors fitted by NMF), task pdac_vs_all
+dataset: raw_ownfactors
+task: pdac_vs_all
+gene_selection_task: pdac_vs_all
+model: random_forest_paper
+variance_cutoff: 1.0
+alpha: 0.05
+log_variance: false
+n_synthetic_pdac: 100
+n_seeds: 10
+seed: 0

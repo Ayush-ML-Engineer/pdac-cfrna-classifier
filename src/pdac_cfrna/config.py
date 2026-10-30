@@ -73,12 +73,22 @@ class SplitSpec(_Strict):
     validation_cohorts: list[str] = []
 
 
+class NormalizationSpec(_Strict):
+    """Normalize the raw counts when the dataset is loaded (cf-normalization, then TMM)."""
+
+    factors: str  # path template of a factor CSV such as updated_intrinsic.csv
+
+    def resolved_factors_path(self) -> Path:
+        return resolve_path(self.factors)
+
+
 class DatasetConfig(_Strict):
     name: str
     description: str = ""
     matrix: MatrixSpec
     metadata: MetadataSpec
     # raw label -> class id. Labels not listed are handled by `unmapped`.
+    normalization: NormalizationSpec | None = None  # None: the matrix is already normalized
     class_map: dict[str, int]
     positive_class: int = 1
     unmapped: Literal["drop", "error"] = "error"

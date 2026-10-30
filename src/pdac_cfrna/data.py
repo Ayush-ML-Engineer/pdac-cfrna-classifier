@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from pdac_cfrna.config import DatasetConfig
+from pdac_cfrna.normalization import load_factors, normalize_counts
 
 
 @dataclass(frozen=True)
@@ -47,22 +48,33 @@ def _require_file(path: Path, template: str, what: str) -> None:
 
 
 def load_dataset(cfg: DatasetConfig) -> Dataset:
-    mspec, metaspec = cfg.matrix, cfg.metadata
+    mspec, metaspec, nspec = cfg.matrix, cfg.metadata, cfg.normalization
 
-    # Step 1: resolve and check BOTH files before reading anything.
+    # Step 1: resolve and check ALL files before reading anything.
     matrix_path = mspec.resolved_path()
     meta_path = metaspec.resolved_path()
     _require_file(matrix_path, mspec.path, "Expression matrix")
     _require_file(meta_path, metaspec.path, "Metadata file")
+    factors_path = nspec.resolved_factors_path() if nspec else None
+    if nspec and factors_path:
+        _require_file(factors_path, nspec.factors, "Factor file")
 
-    # Step 2: expression matrix, flipped so rows are samples.
+    # Step 2: expression matrix as genes x samples (the layout normalization works on).
     X = pd.read_csv(matrix_path, index_col=mspec.index_col)
-    if mspec.orientation == "genes_by_samples":
+    if mspec.orientation == "samples_by_genes":
         X = X.T
+
+    # Step 3: optional normalization of the raw counts. It sees EVERY sample in the file, as in
+    # the paper, and happens BEFORE any sample is dropped by the class map below.
+    if factors_path is not None:
+        X = normalize_counts(X, load_factors(factors_path))
+
+    # Step 4: samples as rows from here on.
+    X = X.T
     X.index = X.index.astype(str)
     X.index.name = "sample_id"
 
-    # Step 3: metadata, indexed by the sample-id column.
+    # Step 5: metadata, indexed by the sample-id column.
     meta = pd.read_csv(
         meta_path,
         index_col=metaspec.index_col,
@@ -72,13 +84,13 @@ def load_dataset(cfg: DatasetConfig) -> Dataset:
     meta = meta.set_index(metaspec.sample_id_column)
     meta.index = meta.index.astype(str)
 
-    # Step 4: every matrix sample must have metadata; reorder metadata to match.
+    # Step 6: every matrix sample must have metadata; reorder metadata to match.
     missing = X.index.difference(meta.index)
     if len(missing):
         raise ValueError(f"{len(missing)} matrix samples lack metadata, e.g. {list(missing[:5])}")
     meta = meta.loc[X.index]
 
-    # Step 5: translate text diagnoses into class numbers.
+    # Step 7: translate text diagnoses into class numbers and drop the rest if asked to.
     labels = meta[metaspec.label_column].astype(str).str.strip()
     unknown = sorted(set(labels) - set(cfg.class_map))
     if unknown and cfg.unmapped == "error":

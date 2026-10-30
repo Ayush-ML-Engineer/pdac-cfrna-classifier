@@ -1,0 +1,12 @@
+name: paper_replication_raw_pdac_vs_non_cancer
+description: Paper classifier from RAW counts (normalized at load time with the authors' factors), task pdac_vs_non_cancer
+dataset: moore2025_raw
+task: pdac_vs_non_cancer
+gene_selection_task: pdac_vs_all
+model: random_forest_paper
+variance_cutoff: 1.0
+alpha: 0.05
+log_variance: false
+n_synthetic_pdac: 100
+n_seeds: 10
+seed: 0

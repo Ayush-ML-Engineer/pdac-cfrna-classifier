@@ -5,7 +5,7 @@ matrix:
   path: ${PDAC_DATA_ROOT}/pdac_genecount.csv
   orientation: genes_by_samples
 normalization:
-  factors: ${PROCESSED_DATA_PATH}/our_updated_factors.csv
+  factors: ${PROCESSED_DATA_PATH}/updated_factors.csv
 metadata:
   path: ${PDAC_DATA_ROOT}/pdac_meta.csv
   sample_id_column: SeqID

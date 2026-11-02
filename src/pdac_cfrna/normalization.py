@@ -6,6 +6,7 @@ Tables in this module are genes x samples, as in the paper's R code and CSV file
 from __future__ import annotations
 
 from collections.abc import Hashable
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +14,36 @@ import pandas as pd
 from scipy.stats import rankdata
 
 FACTOR_COLUMNS = ["Intrinsic", "Extrinsic"]
+
+
+def _cf_totals(counts: pd.DataFrame, f: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    """Per sample: total of the intrinsic part and total of the batch part of the counts."""
+    intrinsic = counts.mul(f["Intrinsic"], axis=0).sum()
+    batch = counts.mul(f["Extrinsic"], axis=0).sum()
+    empty = intrinsic.index[(intrinsic == 0) | (batch == 0)]
+    if len(empty) > 0:
+        raise ValueError(
+            f"cannot normalize samples with no intrinsic or batch counts: {list(empty)}"
+        )
+    return intrinsic, batch
+
+
+def _cf_apply(
+    counts: pd.DataFrame,
+    f: pd.DataFrame,
+    intrinsic: pd.Series,
+    batch: pd.Series,
+    median_intrinsic: float,
+    median_batch: float,
+) -> pd.DataFrame:
+    """Rescale each sample's two parts against the given medians (counts and f are aligned)."""
+    fact_i = intrinsic / median_intrinsic
+    fact_b = batch / median_batch
+    scale = (
+        f["Intrinsic"].to_numpy()[:, None] / fact_i.to_numpy()[None, :]
+        + f["Extrinsic"].to_numpy()[:, None] / fact_b.to_numpy()[None, :]
+    )
+    return pd.DataFrame(counts.to_numpy() * scale, index=counts.index, columns=counts.columns)
 
 
 def cf_norm(counts: pd.DataFrame, factors: pd.DataFrame) -> pd.DataFrame:
@@ -26,6 +57,7 @@ def cf_norm(counts: pd.DataFrame, factors: pd.DataFrame) -> pd.DataFrame:
 
     LIMITATION: the medians come from the samples passed in, so a sample's result depends on
     which other samples are in the table. A batch of one sample is returned unchanged.
+    (fit_normalizer / apply_normalizer remove this dependence by freezing the medians.)
 
     Args:
         counts: raw counts, genes in rows, samples in columns.
@@ -42,22 +74,8 @@ def cf_norm(counts: pd.DataFrame, factors: pd.DataFrame) -> pd.DataFrame:
     if len(genes) == 0:
         raise ValueError("counts and factors share no genes")
     counts, f = counts.loc[genes], factors.loc[genes]
-
-    intrinsic = counts.mul(f["Intrinsic"], axis=0).sum()  # per sample: intrinsic part total
-    batch = counts.mul(f["Extrinsic"], axis=0).sum()  # per sample: batch part total
-    empty = intrinsic.index[(intrinsic == 0) | (batch == 0)]
-    if len(empty) > 0:
-        raise ValueError(
-            f"cannot normalize samples with no intrinsic or batch counts: {list(empty)}"
-        )
-
-    fact_i = intrinsic / intrinsic.median()
-    fact_b = batch / batch.median()
-    scale = (
-        f["Intrinsic"].to_numpy()[:, None] / fact_i.to_numpy()[None, :]
-        + f["Extrinsic"].to_numpy()[:, None] / fact_b.to_numpy()[None, :]
-    )
-    return pd.DataFrame(counts.to_numpy() * scale, index=counts.index, columns=counts.columns)
+    intrinsic, batch = _cf_totals(counts, f)
+    return _cf_apply(counts, f, intrinsic, batch, float(intrinsic.median()), float(batch.median()))
 
 
 def load_factors(path: str | Path, tolerance: float = 1e-6) -> pd.DataFrame:
@@ -192,6 +210,30 @@ def tmm(counts: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def _validate_counts(counts: pd.DataFrame, min_samples: int) -> None:
+    if not isinstance(counts, pd.DataFrame):
+        raise TypeError("counts must be a pandas DataFrame (genes x samples)")
+    if counts.shape[1] < min_samples:
+        plural = "s" if min_samples != 1 else ""
+        raise ValueError(f"at least {min_samples} sample{plural} needed, got {counts.shape[1]}")
+    if not counts.index.is_unique:
+        raise ValueError("gene names must be unique")
+    if not counts.columns.is_unique:
+        raise ValueError("sample names must be unique")
+    if not all(pd.api.types.is_numeric_dtype(counts[c]) for c in counts.columns):
+        raise ValueError("counts must contain numbers only")
+    if counts.isna().any().any():
+        raise ValueError("counts must not contain missing values")
+    if (counts < 0).any().any():
+        raise ValueError("counts must not be negative")
+
+
+def _validate_factor_columns(factors: pd.DataFrame) -> None:
+    missing = [c for c in FACTOR_COLUMNS if c not in factors.columns]
+    if missing:
+        raise ValueError(f"factors lack the column(s) {missing}")
+
+
 def normalize_counts(counts: pd.DataFrame, factors: pd.DataFrame) -> pd.DataFrame:
     """The paper's normalization: cf_norm followed by TMM (main_script.R, line 43).
 
@@ -204,31 +246,103 @@ def normalize_counts(counts: pd.DataFrame, factors: pd.DataFrame) -> pd.DataFram
 
     LIMITATION: both steps use the other samples in `counts` (a median for cf_norm, a reference
     sample for TMM), so a sample's result depends on which samples are normalized together.
+    Use fit_normalizer / apply_normalizer when scores must not depend on the batch.
 
     Raises:
         TypeError: counts is not a DataFrame.
         ValueError: fewer than two samples, repeated gene or sample names, non-numeric,
             missing or negative counts, or a factor table without Intrinsic/Extrinsic columns.
     """
-    if not isinstance(counts, pd.DataFrame):
-        raise TypeError("counts must be a pandas DataFrame (genes x samples)")
-    if counts.shape[1] < 2:
-        raise ValueError("at least 2 samples are needed to normalize a batch")
-    if not counts.index.is_unique:
-        raise ValueError("gene names must be unique")
-    if not counts.columns.is_unique:
-        raise ValueError("sample names must be unique")
-    if not all(pd.api.types.is_numeric_dtype(counts[c]) for c in counts.columns):
-        raise ValueError("counts must contain numbers only")
-    if counts.isna().any().any():
-        raise ValueError("counts must not contain missing values")
-    if (counts < 0).any().any():
-        raise ValueError("counts must not be negative")
-    missing = [c for c in FACTOR_COLUMNS if c not in factors.columns]
-    if missing:
-        raise ValueError(f"factors lack the column(s) {missing}")
-
+    _validate_counts(counts, min_samples=2)
+    _validate_factor_columns(factors)
     return tmm(cf_norm(counts, factors))
+
+
+@dataclass(frozen=True, eq=False)
+class NormalizationConstants:
+    """Everything normalize_counts takes from its batch, frozen so new samples can reuse it."""
+
+    factors: pd.DataFrame  # Intrinsic/Extrinsic of the genes the reference batch covers
+    median_intrinsic: float  # median over the reference batch of the intrinsic totals
+    median_batch: float  # median over the reference batch of the batch-part totals
+    tmm_reference: pd.Series  # cf-normalized counts of the TMM reference sample, by gene
+    tmm_scale: float  # geometric mean of the reference batch's raw TMM factors
+
+
+def fit_normalizer(counts: pd.DataFrame, factors: pd.DataFrame) -> NormalizationConstants:
+    """Learn the normalization constants from a reference batch (genes x samples, raw counts).
+
+    Raises:
+        TypeError / ValueError: as normalize_counts (at least two samples are needed, and the
+            counts must share genes with the factor table).
+    """
+    _validate_counts(counts, min_samples=2)
+    _validate_factor_columns(factors)
+    genes = factors.index.intersection(counts.index)
+    if len(genes) == 0:
+        raise ValueError("counts and factors share no genes")
+    f, C = factors.loc[genes, FACTOR_COLUMNS].copy(), counts.loc[genes]
+
+    intrinsic, batch = _cf_totals(C, f)
+    median_i, median_b = float(intrinsic.median()), float(batch.median())
+    cf = _cf_apply(C, f, intrinsic, batch, median_i, median_b)
+
+    reference = tmm_reference_sample(cf)
+    reference_counts = cf[reference].to_numpy(dtype=float)
+    raw_factors = np.array(
+        [
+            1.0
+            if sample == reference
+            else _tmm_factor_vs_reference(
+                cf[sample].to_numpy(dtype=float), reference_counts, 0.3, 0.05
+            )
+            for sample in cf.columns
+        ]
+    )
+    return NormalizationConstants(
+        factors=f,
+        median_intrinsic=median_i,
+        median_batch=median_b,
+        tmm_reference=pd.Series(reference_counts, index=cf.index),
+        tmm_scale=float(np.exp(np.log(raw_factors).mean())),
+    )
+
+
+def apply_normalizer(counts: pd.DataFrame, constants: NormalizationConstants) -> pd.DataFrame:
+    """Normalize raw counts (genes x samples) with frozen constants.
+
+    Every sample is processed on its own: its result does not depend on the other samples in
+    `counts`, and a single sample is allowed. Genes that the constants do not know are ignored.
+
+    Returns:
+        Normalized table with the constants' genes, in their order.
+
+    Raises:
+        ValueError: invalid counts (see normalize_counts), or genes the constants need are missing.
+    """
+    _validate_counts(counts, min_samples=1)
+    needed = constants.factors.index
+    missing = needed.difference(counts.index)
+    if len(missing) > 0:
+        raise ValueError(
+            f"{len(missing)} of the {len(needed)} genes the normalizer needs are missing "
+            f"from counts, e.g. {list(missing[:5])}"
+        )
+    C, f = counts.loc[needed], constants.factors
+    intrinsic, batch = _cf_totals(C, f)
+    cf = _cf_apply(C, f, intrinsic, batch, constants.median_intrinsic, constants.median_batch)
+
+    reference = constants.tmm_reference.to_numpy(dtype=float)
+    factors = (
+        np.array(
+            [
+                _tmm_factor_vs_reference(cf[s].to_numpy(dtype=float), reference, 0.3, 0.05)
+                for s in cf.columns
+            ]
+        )
+        / constants.tmm_scale
+    )
+    return pd.DataFrame(cf.to_numpy() / factors[None, :], index=cf.index, columns=cf.columns)
 
 
 def cpm(counts: pd.DataFrame) -> pd.DataFrame:

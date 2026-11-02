@@ -8,7 +8,13 @@ from pathlib import Path
 import pandas as pd
 
 from pdac_cfrna.config import DatasetConfig
-from pdac_cfrna.normalization import load_factors, normalize_counts
+from pdac_cfrna.normalization import (
+    NormalizationConstants,
+    apply_normalizer,
+    fit_normalizer,
+    load_factors,
+    normalize_counts,
+)
 
 
 @dataclass(frozen=True)
@@ -17,6 +23,7 @@ class Dataset:
     y: pd.Series  # int class ids, index = sample ids
     meta: pd.DataFrame  # aligned to X
     config: DatasetConfig
+    normalizer: NormalizationConstants | None = None  # set in frozen normalization mode
 
     @property
     def train_mask(self) -> pd.Series:
@@ -64,17 +71,7 @@ def load_dataset(cfg: DatasetConfig) -> Dataset:
     if mspec.orientation == "samples_by_genes":
         X = X.T
 
-    # Step 3: optional normalization of the raw counts. It sees EVERY sample in the file, as in
-    # the paper, and happens BEFORE any sample is dropped by the class map below.
-    if factors_path is not None:
-        X = normalize_counts(X, load_factors(factors_path))
-
-    # Step 4: samples as rows from here on.
-    X = X.T
-    X.index = X.index.astype(str)
-    X.index.name = "sample_id"
-
-    # Step 5: metadata, indexed by the sample-id column.
+    # Step 3: metadata, indexed by the sample-id column (frozen normalization needs the cohorts).
     meta = pd.read_csv(
         meta_path,
         index_col=metaspec.index_col,
@@ -83,6 +80,32 @@ def load_dataset(cfg: DatasetConfig) -> Dataset:
     )
     meta = meta.set_index(metaspec.sample_id_column)
     meta.index = meta.index.astype(str)
+
+    # Step 4: optional normalization of the raw counts. It sees EVERY sample in the file and
+    # happens BEFORE any sample is dropped by the class map below.
+    normalizer: NormalizationConstants | None = None
+    if nspec is not None and factors_path is not None:
+        factors = load_factors(factors_path)
+        if nspec.mode == "joint":
+            X = normalize_counts(X, factors)  # all samples together, as in the paper
+        else:
+            cohorts = nspec.reference_cohorts
+            if cohorts is None and cfg.split is not None:
+                cohorts = cfg.split.train_cohorts
+            sample_cohort = meta[metaspec.cohort_column].reindex(X.columns.astype(str))
+            reference = X.columns[sample_cohort.isin(cohorts or []).to_numpy()]
+            if len(reference) < 2:
+                raise ValueError(
+                    f"frozen normalization needs at least 2 samples from the cohorts {cohorts}, "
+                    f"found {len(reference)}"
+                )
+            normalizer = fit_normalizer(X[reference], factors)
+            X = apply_normalizer(X, normalizer)
+
+    # Step 5: samples as rows from here on.
+    X = X.T
+    X.index = X.index.astype(str)
+    X.index.name = "sample_id"
 
     # Step 6: every matrix sample must have metadata; reorder metadata to match.
     missing = X.index.difference(meta.index)
@@ -100,7 +123,7 @@ def load_dataset(cfg: DatasetConfig) -> Dataset:
     X, meta, labels = X.loc[keep], meta.loc[keep], labels.loc[keep]
     y = labels.map(cfg.class_map).astype(int).rename("y")
 
-    return Dataset(X=X, y=y, meta=meta, config=cfg)
+    return Dataset(X=X, y=y, meta=meta, config=cfg, normalizer=normalizer)
 
 
 def apply_task(cfg: DatasetConfig, class_map: dict[str, int], unmapped: str) -> DatasetConfig:

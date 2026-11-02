@@ -74,12 +74,25 @@ class SplitSpec(_Strict):
 
 
 class NormalizationSpec(_Strict):
-    """Normalize the raw counts when the dataset is loaded (cf-normalization, then TMM)."""
+    """Normalize the raw counts when the dataset is loaded (cf-normalization, then TMM).
+
+    mode "joint": all samples are normalized together, as in the paper.
+    mode "frozen": the constants are fitted on the samples of `reference_cohorts` only (default:
+    the split's training cohorts) and then applied to every sample on its own.
+    """
 
     factors: str  # path template of a factor CSV such as updated_intrinsic.csv
+    mode: Literal["joint", "frozen"] = "joint"
+    reference_cohorts: list[str] | None = None
 
     def resolved_factors_path(self) -> Path:
         return resolve_path(self.factors)
+
+    @model_validator(mode="after")
+    def _reference_cohorts_only_when_frozen(self) -> NormalizationSpec:
+        if self.mode == "joint" and self.reference_cohorts is not None:
+            raise ValueError("reference_cohorts only makes sense with mode: frozen")
+        return self
 
 
 class DatasetConfig(_Strict):
@@ -105,6 +118,16 @@ class DatasetConfig(_Strict):
     def _positive_in_map(self) -> DatasetConfig:
         if self.positive_class not in self.class_map.values():
             raise ValueError("positive_class must appear in class_map values")
+        return self
+
+    @model_validator(mode="after")
+    def _frozen_normalization_needs_cohorts(self) -> DatasetConfig:
+        spec = self.normalization
+        if spec is not None and spec.mode == "frozen":
+            if self.metadata.cohort_column is None:
+                raise ValueError("frozen normalization needs metadata.cohort_column")
+            if spec.reference_cohorts is None and self.split is None:
+                raise ValueError("frozen normalization needs reference_cohorts or a split")
         return self
 
 

@@ -15,12 +15,22 @@ from pdac_cfrna.data import apply_task, load_dataset
 from pdac_cfrna.normalization import normalize_counts
 
 
-def _write_toy_files(tmp_path: Path, orientation: str = "genes_by_samples") -> DatasetConfig:
-    """40 genes x 12 samples of raw counts, factors for 35 of the genes, and metadata."""
+def _write_toy_files(
+    tmp_path: Path,
+    orientation: str = "genes_by_samples",
+    mode: str = "joint",
+    tweak_last_bcc: bool = False,
+) -> DatasetConfig:
+    """40 genes x 12 samples of raw counts, factors for 35 of the genes, and metadata.
+
+    tweak_last_bcc multiplies 20 genes of the last (BCC) sample by 6, to see who it influences.
+    """
     rng = np.random.default_rng(0)
     genes = [f"g{i}" for i in range(40)]
     samples = [f"s{j}" for j in range(12)]
     counts = pd.DataFrame(rng.poisson(30, (40, 12)) + 1, index=genes, columns=samples)
+    if tweak_last_bcc:
+        counts.iloc[:20, 11] *= 6
     fraction = rng.uniform(0.05, 0.95, 35)
     factors = pd.DataFrame({"Intrinsic": fraction, "Extrinsic": 1 - fraction}, index=genes[:35])
     meta = pd.DataFrame(
@@ -37,7 +47,7 @@ def _write_toy_files(tmp_path: Path, orientation: str = "genes_by_samples") -> D
         {
             "name": "toy_raw",
             "matrix": {"path": str(tmp_path / "counts.csv"), "orientation": orientation},
-            "normalization": {"factors": str(tmp_path / "factors.csv")},
+            "normalization": {"factors": str(tmp_path / "factors.csv"), "mode": mode},
             "metadata": {
                 "path": str(tmp_path / "meta.csv"),
                 "sample_id_column": "SeqID",
@@ -112,6 +122,68 @@ def test_factors_path_expands_environment_variables(monkeypatch):
     monkeypatch.delenv("PDAC_DATA_ROOT")
     with pytest.raises(ValueError, match="PDAC_DATA_ROOT"):
         spec.resolved_factors_path()
+
+
+# ---------- frozen mode ----------
+def test_frozen_mode_gives_the_training_cohort_its_own_batch_normalization(tmp_path):
+    ds = load_dataset(_write_toy_files(tmp_path, mode="frozen"))
+    counts = pd.read_csv(tmp_path / "counts.csv", index_col=0)
+    factors = pd.read_csv(tmp_path / "factors.csv", index_col=0)
+    cedar = [f"s{j}" for j in range(8)]
+    expected = normalize_counts(counts[cedar], factors).T
+    pd.testing.assert_frame_equal(ds.X.loc[cedar], expected, rtol=1e-9, check_names=False)
+    assert ds.normalizer is not None
+
+
+def test_frozen_training_values_do_not_depend_on_the_validation_samples(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    plain = load_dataset(_write_toy_files(tmp_path / "a", mode="frozen"))
+    tweaked = load_dataset(_write_toy_files(tmp_path / "b", mode="frozen", tweak_last_bcc=True))
+    cedar = [f"s{j}" for j in range(8)]
+    np.testing.assert_allclose(plain.X.loc[cedar].to_numpy(), tweaked.X.loc[cedar].to_numpy())
+    assert not np.allclose(plain.X.loc["s11"].to_numpy(), tweaked.X.loc["s11"].to_numpy())
+
+
+def test_joint_mode_lets_a_validation_sample_change_the_training_values(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    plain = load_dataset(_write_toy_files(tmp_path / "a", mode="joint"))
+    tweaked = load_dataset(_write_toy_files(tmp_path / "b", mode="joint", tweak_last_bcc=True))
+    cedar = [f"s{j}" for j in range(8)]
+    assert not np.allclose(plain.X.loc[cedar].to_numpy(), tweaked.X.loc[cedar].to_numpy())
+    assert plain.normalizer is None
+
+
+def test_frozen_mode_defaults_to_the_training_cohorts_as_reference(tmp_path):
+    cfg = _write_toy_files(tmp_path, mode="frozen")
+    assert cfg.normalization is not None and cfg.normalization.reference_cohorts is None
+    assert load_dataset(cfg).normalizer is not None  # fitted on the split's training cohort
+
+
+def test_frozen_mode_needs_enough_reference_samples(tmp_path):
+    cfg = _write_toy_files(tmp_path, mode="frozen")
+    spec = {**cfg.normalization.model_dump(), "reference_cohorts": ["NOT_A_COHORT"]}  # type: ignore[union-attr]
+    bad = DatasetConfig.model_validate({**cfg.model_dump(), "normalization": spec})
+    with pytest.raises(ValueError, match="at least 2 samples"):
+        load_dataset(bad)
+
+
+def test_reference_cohorts_are_rejected_in_joint_mode():
+    with pytest.raises(ValueError, match="frozen"):
+        NormalizationSpec(factors="f.csv", reference_cohorts=["CEDAR"])
+
+
+def test_an_unknown_normalization_mode_is_rejected():
+    with pytest.raises(ValueError):
+        NormalizationSpec.model_validate({"factors": "f.csv", "mode": "sideways"})
+
+
+def test_frozen_mode_needs_a_cohort_column(tmp_path):
+    cfg = _write_toy_files(tmp_path, mode="frozen")
+    metadata = {**cfg.metadata.model_dump(), "cohort_column": None}
+    with pytest.raises(ValueError, match="cohort_column"):
+        DatasetConfig.model_validate({**cfg.model_dump(), "metadata": metadata})
 
 
 def test_every_shipped_dataset_config_parses():

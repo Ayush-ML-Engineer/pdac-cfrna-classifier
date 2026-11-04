@@ -1,0 +1,31 @@
+# Genes reported by Moore et al. 2025 (Nat Commun 16:7345) for the PDAC cfRNA classifier.
+# The paper finds 29 DE genes. Its main text names 25: 24 in Fig. 3a and AC139099.4 in the Methods.
+# If you find the other 4 in the supplement, add them to `genes` below.
+source: "Moore et al. 2025, Nat Commun 16:7345 - Fig. 3a and Methods"
+reported_total: 29
+genes:
+  - THAP12
+  - RPS4X
+  - RPS13
+  - RPS14
+  - MYC
+  - FOXO1
+  - FAM117A
+  - RIOX1
+  - CD37
+  - TNFRSF13C
+  - PAX5
+  - MS4A1
+  - SMAD3
+  - USP9X
+  - USP9Y
+  - UTY
+  - GCLC
+  - LARP1B
+  - CRP
+  - SERPINA1
+  - ACOT12
+  - OR4K13
+  - RAB13
+  - AFMID
+  - AC139099.4

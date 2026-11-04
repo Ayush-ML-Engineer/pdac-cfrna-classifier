@@ -6,13 +6,12 @@ import pandas as pd
 import pytest
 
 from pdac_cfrna.config import (
-    DATASET_CONFIG_DIR,
     DatasetConfig,
     NormalizationSpec,
-    load_dataset_config,
 )
 from pdac_cfrna.data import apply_task, load_dataset
 from pdac_cfrna.normalization import normalize_counts
+from pdac_cfrna.run_config import load_run_config
 
 
 def _write_toy_files(
@@ -186,18 +185,18 @@ def test_frozen_mode_needs_a_cohort_column(tmp_path):
         DatasetConfig.model_validate({**cfg.model_dump(), "metadata": metadata})
 
 
-def test_every_shipped_dataset_config_parses():
-    paths = sorted(DATASET_CONFIG_DIR.glob("*.yaml"))
-    assert paths
-    for path in paths:
-        assert load_dataset_config(path).name == path.stem
-
-
 @pytest.mark.slow
 @pytest.mark.skipif(not os.environ.get("PDAC_DATA_ROOT"), reason="needs the real data folder")
 def test_real_raw_dataset_matches_the_shipped_normalized_dataset():
-    raw_ds = load_dataset(load_dataset_config("moore2025_raw"))
-    shipped_ds = load_dataset(load_dataset_config("moore2025_cfnorm"))
+    raw_ds = load_dataset(load_run_config().dataset)
+    shipped_ds = load_dataset(
+        load_run_config(
+            [
+                "dataset.matrix.path=${PDAC_DATA_ROOT}/normalized_pdac_genecount.csv",
+                "dataset.normalization=null",
+            ]
+        ).dataset
+    )
     assert raw_ds.X.shape == (248, 39984)
     assert list(raw_ds.X.index) == list(shipped_ds.X.index)
     shared = raw_ds.X.columns.intersection(shipped_ds.X.columns)

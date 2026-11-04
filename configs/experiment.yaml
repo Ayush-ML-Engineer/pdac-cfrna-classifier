@@ -1,0 +1,17 @@
+# Default experiment: the paper's classifier, trained on CEDAR, tested on BCC, PDAC vs all.
+# Change a setting for one run with --set experiment.<key>=<value>.
+name: paper_replication
+description: log1p + SMOTE + random forest on the DE-selected genes
+
+task: pdac_vs_all                # pdac_vs_all | pdac_vs_non_cancer | pdac_vs_benign
+gene_selection_task: pdac_vs_all # genes are always chosen with this task's labels
+
+variance_cutoff: 1.0
+alpha: 0.05
+log_variance: false
+
+n_synthetic_pdac: 100            # null = SMOTE balances the classes exactly
+exclude_genes: []                # (not implemented right now) e.g. [USP9Y, UTY, USP9X] for the sex-gene sensitivity run
+
+seed: 0                          # first seed; seeds are seed, seed+1, ...
+n_seeds: 10

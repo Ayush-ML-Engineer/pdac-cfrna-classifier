@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import argparse
 
-from pdac_cfrna.config import load_dataset_config
-from pdac_cfrna.data import apply_task, load_dataset
-from pdac_cfrna.experiment import load_experiment_config, resolve_experiment_path
+from pdac_cfrna.run_config import add_config_arguments, config_from_args
 from pdac_cfrna.runs import tracked_run
 from pdac_cfrna.selection import select_de_genes
+from pdac_cfrna.training import load_for_task
 
 # Genes named in the paper's Fig. 3a / Results (24 of the 29; direction as reported).
 PAPER_UP = {"SERPINA1", "ACOT12", "CRP", "AFMID"}
@@ -36,18 +35,13 @@ PAPER_OTHER = {
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("experiment", help="experiment name or path to its YAML file")
-    args = parser.parse_args()
+    add_config_arguments(parser)
+    cfg = config_from_args(parser.parse_args())  # validated BEFORE the lock and the run folder
+    exp = cfg.experiment
 
-    # Validate the experiment BEFORE taking the lock or creating a run folder.
-    yaml_path = resolve_experiment_path(args.experiment)
-    exp = load_experiment_config(yaml_path)
-
-    with tracked_run(exp, yaml_path) as run:
-        # 1. Dataset config + the experiment's task override.
-        task = exp.resolved_task
-        dataset_cfg = apply_task(load_dataset_config(exp.dataset), task.class_map, task.unmapped)
-        ds = load_dataset(dataset_cfg)
+    with tracked_run(cfg) as run:
+        # 1. The dataset with the experiment's task applied.
+        ds = load_for_task(cfg.dataset, exp.task)
 
         # 2. Training cohort only (CEDAR). The validation cohort is never touched here.
         X_train = ds.X[ds.train_mask]

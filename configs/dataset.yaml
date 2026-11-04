@@ -1,0 +1,36 @@
+# Default dataset: Moore et al. 2025 cfRNA PDAC, RAW counts normalized when loaded
+# (cf-normalization + TMM, all samples together = the paper's "joint" mode).
+# Change a setting for one run with --set dataset.<key>=<value> (see docs/configuration.md).
+name: moore2025
+description: Moore et al. 2025 cfRNA PDAC, CEDAR (discovery) + BCC (validation)
+
+matrix:
+  path: ${PDAC_DATA_ROOT}/pdac_genecount.csv
+  orientation: genes_by_samples
+
+# null = the matrix is already normalized (e.g. normalized_pdac_genecount.csv).
+normalization:
+  factors: ${PDAC_DATA_ROOT}/updated_intrinsic.csv
+  mode: joint                 # joint (paper) | frozen (constants fitted on reference_cohorts)
+  reference_cohorts: null     # only with mode: frozen; null = the split's train_cohorts
+
+metadata:
+  path: ${PDAC_DATA_ROOT}/pdac_meta.csv
+  sample_id_column: SeqID
+  label_column: Pancreatitis_type
+  cohort_column: Cohort
+
+# The experiment's task replaces this map for the real runs; it is the PDAC-vs-all default.
+class_map:
+  PDAC: 1
+  Benign Pancreas: 0
+  Pancreatitis: 0
+  IPMN: 0
+  Islet Cell Tumor: 0
+  Cancer_other: 0
+positive_class: 1
+unmapped: error
+
+split:
+  train_cohorts: [CEDAR]
+  validation_cohorts: [BCC]   # [] = no held-out cohort (final model on everything)

@@ -20,6 +20,7 @@ fmt:
     uv run ruff check --fix .
     uv run ruff format .
 
-# usage: just run paper_replication
-run exp:
-    uv run python -m pdac_cfrna.cli {{exp}}
+# usage: just run                      (defaults)
+#        just run --set experiment.task=pdac_vs_benign
+run *args:
+    uv run python scripts/run_paper_replication.py {{args}}

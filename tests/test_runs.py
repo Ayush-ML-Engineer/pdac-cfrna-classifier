@@ -4,22 +4,34 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+import yaml
 from filelock import Timeout
 
+from pdac_cfrna.config import DatasetConfig
 from pdac_cfrna.experiment import ExperimentConfig
+from pdac_cfrna.model_config import ModelConfig
+from pdac_cfrna.run_config import RunConfig
 from pdac_cfrna.runs import create_run_dir, git_info, run_lock, timestamp, tracked_run
 
 NOW = datetime(2026, 10, 16, 2, 3, 22)
 
 
-def _cfg() -> ExperimentConfig:
-    return ExperimentConfig(name="my_exp", dataset="d", task="pdac_vs_benign", seed=5)
-
-
-def _yaml(tmp_path: Path) -> Path:
-    p = tmp_path / "my_exp.yaml"
-    p.write_text("name: my_exp\n", encoding="utf-8")
-    return p
+def _cfg() -> RunConfig:
+    dataset = DatasetConfig.model_validate(
+        {
+            "name": "d",
+            "matrix": {"path": "x.csv"},
+            "metadata": {"path": "m.csv", "sample_id_column": "id", "label_column": "dx"},
+            "class_map": {"PDAC": 1, "Benign Pancreas": 0},
+        }
+    )
+    experiment = ExperimentConfig(name="my_exp", task="pdac_vs_benign", seed=5)
+    model = ModelConfig(
+        name="m", n_estimators=1, max_features=1, min_samples_leaf=1, bootstrap=True
+    )
+    return RunConfig(
+        dataset=dataset, experiment=experiment, model=model, overrides=["--set experiment.seed=5"]
+    )
 
 
 def test_timestamp_is_zero_padded_windows_safe_and_sorts_chronologically():
@@ -49,16 +61,19 @@ def test_lock_blocks_a_second_run_while_the_first_is_active(tmp_path):
 def test_successful_run_records_inputs_and_outcome(tmp_path):
     runs, repo = tmp_path / "runs", tmp_path / "repo"
     repo.mkdir()
-    with tracked_run(_cfg(), _yaml(tmp_path), runs_root=runs, repo_root=repo) as run:
+    with tracked_run(_cfg(), runs_root=runs, repo_root=repo) as run:
         run.extra["n_significant"] = 29
     meta = json.loads((run.dir / "run_metadata.json").read_text())
     assert meta["status"] == "success"
     assert meta["task"] == "pdac_vs_benign"
     assert meta["seed"] == 5
     assert meta["results"] == {"n_significant": 29}
-    assert meta["experiment_yaml"].endswith("my_exp.yaml")
+    assert meta["overrides"] == ["--set experiment.seed=5"]
+    assert meta["config"]["experiment"]["name"] == "my_exp"
     assert meta["duration_seconds"] >= 0
-    assert (run.dir / "experiment_config.yaml").read_text() == "name: my_exp\n"
+    saved = yaml.safe_load((run.dir / "resolved_config.yaml").read_text())
+    assert saved["experiment"]["seed"] == 5
+    assert saved["dataset"]["name"] == "d"
 
 
 def test_failed_run_is_recorded_and_the_error_still_propagates(tmp_path):
@@ -66,7 +81,7 @@ def test_failed_run_is_recorded_and_the_error_still_propagates(tmp_path):
     repo.mkdir()
     with (
         pytest.raises(RuntimeError, match="boom"),
-        tracked_run(_cfg(), _yaml(tmp_path), runs_root=runs, repo_root=repo) as run,
+        tracked_run(_cfg(), runs_root=runs, repo_root=repo) as run,
     ):
         raise RuntimeError("boom")
     meta = json.loads((run.dir / "run_metadata.json").read_text())
@@ -113,6 +128,6 @@ def test_dirty_run_saves_the_diff_file(tmp_path):
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "first")
     (repo / "a.txt").write_text("two\n")
-    with tracked_run(_cfg(), _yaml(tmp_path), runs_root=runs, repo_root=repo) as run:
+    with tracked_run(_cfg(), runs_root=runs, repo_root=repo) as run:
         pass
     assert "+two" in (run.dir / "code_changes.diff").read_text()

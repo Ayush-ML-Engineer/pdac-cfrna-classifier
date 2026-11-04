@@ -7,16 +7,9 @@ decide whether those values are legal, and turns the file into a Python object.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-from pdac_cfrna.config import REPO_ROOT
-from pdac_cfrna.model_config import resolve_model_path
-
-EXPERIMENT_CONFIG_DIR = REPO_ROOT / "configs" / "experiments"
 
 
 @dataclass(frozen=True)
@@ -58,7 +51,6 @@ class ExperimentConfig(BaseModel):
     # The name becomes part of a folder name, so only filesystem-safe characters are allowed.
     name: str = Field(pattern=r"^[A-Za-z0-9_-]+$")
     description: str = ""
-    dataset: str  # name of a file in configs/datasets/, without .yaml
     task: str
     variance_cutoff: float = Field(default=1.0, ge=0)
     alpha: float = Field(default=0.05, gt=0, lt=1)
@@ -70,8 +62,11 @@ class ExperimentConfig(BaseModel):
     # Which task's labels are used to pick the genes. The paper picks them ONCE with PDAC vs all
     # and reuses the same genes for every task, so this stays "pdac_vs_all" in the replications.
     gene_selection_task: str = "pdac_vs_all"
-    model: str = "random_forest_paper"  # name of a file in configs/models/, without .yaml
-    n_synthetic_pdac: int = Field(default=100, ge=0)
+
+    # Synthetic PDAC samples added by SMOTE; null (None) balances the classes exactly.
+    n_synthetic_pdac: int | None = Field(default=100, ge=0)
+    # Genes removed from the classifier after the gene selection (sensitivity analyses).
+    exclude_genes: list[str] = []
     n_seeds: int = Field(default=10, ge=1)
 
     @field_validator("task", "gene_selection_task")
@@ -81,33 +76,6 @@ class ExperimentConfig(BaseModel):
             raise ValueError(f"Unknown task {v!r}. Allowed: {sorted(TASKS)}")
         return v
 
-    @field_validator("model")
-    @classmethod
-    def _model_must_exist(cls, v: str) -> str:
-        try:
-            resolve_model_path(v)
-        except FileNotFoundError as exc:
-            raise ValueError(str(exc)) from exc
-        return v
-
     @property
     def resolved_task(self) -> Task:
         return TASKS[self.task]
-
-
-def resolve_experiment_path(name_or_path: str | Path) -> Path:
-    """'my_exp' -> configs/experiments/my_exp.yaml ; an explicit path is used as given."""
-    p = Path(name_or_path)
-    if not p.suffix:
-        p = EXPERIMENT_CONFIG_DIR / f"{name_or_path}.yaml"
-    if not p.is_file():
-        raise FileNotFoundError(f"Experiment config not found: {p}")
-    return p
-
-
-def load_experiment_config(path: Path) -> ExperimentConfig:
-    with path.open(encoding="utf-8") as fh:
-        raw = yaml.safe_load(fh)
-    if not isinstance(raw, dict):
-        raise ValueError(f"{path} must contain key: value pairs, got {type(raw).__name__}")
-    return ExperimentConfig.model_validate(raw)

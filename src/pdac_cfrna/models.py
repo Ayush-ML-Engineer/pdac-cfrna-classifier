@@ -16,7 +16,7 @@ def build_paper_pipeline(
     n_pos: int,
     seed: int,
     model: ModelConfig,
-    n_synthetic: int = 100,
+    n_synthetic: int | None = 100,
 ) -> Pipeline:
     """Build the three-step pipeline used in the paper.
 
@@ -25,17 +25,21 @@ def build_paper_pipeline(
             turn "add n_synthetic samples" into a target count.
         seed: Random seed for SMOTE and the random forest.
         model: Random-forest settings, normally loaded from configs/models/.
-        n_synthetic: Number of synthetic PDAC samples SMOTE adds (only while fitting).
+        n_synthetic: Number of synthetic PDAC samples SMOTE adds (only while fitting), or None
+            to balance the classes exactly (PDAC is raised to the size of the other class).
 
     Returns:
         An imblearn Pipeline with steps named "log", "smote" and "rf".
     """
+    sampling_strategy: str | dict[int, int] = (
+        "auto" if n_synthetic is None else {1: n_pos + n_synthetic}
+    )
     return Pipeline(
         [
             ("log", FunctionTransformer(np.log1p)),
             (
                 "smote",
-                SMOTE(sampling_strategy={1: n_pos + n_synthetic}, k_neighbors=5, random_state=seed),
+                SMOTE(sampling_strategy=sampling_strategy, k_neighbors=5, random_state=seed),
             ),
             (
                 "rf",
@@ -57,12 +61,9 @@ def score_task(
     X_test: pd.DataFrame,
     seed: int,
     model: ModelConfig,
-    n_synthetic: int = 100,
+    n_synthetic: int | None = 100,
 ) -> pd.Series:
     """Fit the paper pipeline on the training data and return the PDAC score of each test sample.
-
-    The PDAC score is the forest's predicted probability of class 1. Only X_train/y_train are
-    used for fitting (log, SMOTE and the forest); X_test is only scored.
 
     Returns:
         A Series named "pdac_score", indexed like X_test.
@@ -70,8 +71,6 @@ def score_task(
     n_pos = int(y_train.sum())
     pipe = build_paper_pipeline(n_pos=n_pos, seed=seed, model=model, n_synthetic=n_synthetic)
     pipe.fit(X_train, y_train)
-
-    class_one_column = list(pipe.classes_).index(1)  # do not assume column 1 is class 1
+    class_one_column = list(pipe.classes_).index(1)
     scores = pipe.predict_proba(X_test)[:, class_one_column]
-
     return pd.Series(scores, index=X_test.index, name="pdac_score")

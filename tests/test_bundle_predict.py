@@ -7,12 +7,14 @@ import pandas as pd
 import pytest
 
 from pdac_cfrna.bundle import ModelBundle, load_bundle, save_bundle, scores_to_frame
-from pdac_cfrna.config import DatasetConfig, load_dataset_config, load_env
+from pdac_cfrna.config import DatasetConfig, load_env
 from pdac_cfrna.data import load_dataset
 from pdac_cfrna.evaluation import auc
-from pdac_cfrna.experiment import ExperimentConfig, load_experiment_config, resolve_experiment_path
+from pdac_cfrna.experiment import ExperimentConfig
+from pdac_cfrna.model_config import ModelConfig
 from pdac_cfrna.predict import predict_scores
-from pdac_cfrna.training import load_for_task, select_experiment_genes, train_bundle
+from pdac_cfrna.run_config import RunConfig, load_run_config
+from pdac_cfrna.training import load_for_task, select_experiment_table, train_bundle
 
 load_env()
 
@@ -59,21 +61,54 @@ def _toy_world(tmp_path: Path, mode: str = "frozen") -> tuple[DatasetConfig, pd.
     return cfg, counts
 
 
-def _experiment() -> ExperimentConfig:
-    return ExperimentConfig(
-        name="toy_model",
-        dataset="toy_world",
-        task="pdac_vs_benign",
-        seed=1,
-        n_synthetic_pdac=5,
+# tests/test_bundle_predict.py
+def _run_config(dataset: DatasetConfig) -> RunConfig:
+    return RunConfig(
+        dataset=dataset,
+        experiment=ExperimentConfig(
+            name="toy_model", task="pdac_vs_benign", seed=1, n_synthetic_pdac=5
+        ),
+        model=ModelConfig(
+            name="random_forest_paper",
+            n_estimators=250,
+            max_features=1,
+            min_samples_leaf=1,
+            bootstrap=True,
+        ),
     )
+
+
+FROZEN_ON_CEDAR = [
+    "dataset.normalization.mode=frozen",
+    "dataset.normalization.reference_cohorts=[CEDAR]",
+]
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not os.environ.get("PDAC_DATA_ROOT"), reason="needs the real data folder")
+def test_real_data_bundle_scores_the_validation_cohort_from_raw_counts():
+    root = Path(os.environ["PDAC_DATA_ROOT"])
+    cfg = load_run_config(FROZEN_ON_CEDAR, name="model_frozen_vs_all")
+    table = select_experiment_table(cfg)
+    genes = list(table.index[table["significant"]])
+    ds = load_for_task(cfg.dataset, cfg.experiment.task)
+    bundle = train_bundle(ds, cfg, genes)
+    raw = pd.read_csv(root / "pdac_genecount.csv", index_col=0)
+    bcc = list(ds.X.index[ds.validation_mask])
+
+    scores = predict_scores(raw[bcc], bundle)  # raw counts in, scores out
+    assert len(genes) == 36
+    assert auc(ds.y[bcc], scores) == pytest.approx(0.879, abs=0.01)
+
+    alone = predict_scores(raw[[bcc[0]]], bundle)  # one sample, no batch
+    assert alone.iloc[0] == pytest.approx(scores[bcc[0]], abs=1e-12)
 
 
 @pytest.fixture
 def world(tmp_path):
     cfg, counts = _toy_world(tmp_path)
     ds = load_dataset(cfg)
-    bundle = train_bundle(ds, _experiment(), SIGNAL_GENES)
+    bundle = train_bundle(ds, _run_config(cfg), SIGNAL_GENES)
     return ds, counts, bundle
 
 
@@ -193,41 +228,16 @@ def test_loading_something_that_is_not_a_bundle_or_does_not_exist_fails(tmp_path
 def test_training_needs_frozen_normalization(tmp_path):
     cfg, _ = _toy_world(tmp_path, mode="joint")
     with pytest.raises(ValueError, match="frozen"):
-        train_bundle(load_dataset(cfg), _experiment(), SIGNAL_GENES)
+        train_bundle(load_dataset(cfg), _run_config(cfg), SIGNAL_GENES)
 
 
 def test_training_rejects_genes_that_are_not_in_the_dataset(tmp_path):
     cfg, _ = _toy_world(tmp_path)
     with pytest.raises(ValueError, match="not in the dataset"):
-        train_bundle(load_dataset(cfg), _experiment(), [*SIGNAL_GENES, "not_a_gene"])
+        train_bundle(load_dataset(cfg), _run_config(cfg), [*SIGNAL_GENES, "not_a_gene"])
 
 
 def test_scores_to_frame_has_one_row_per_sample():
     frame = scores_to_frame(pd.Series([0.2, 0.9], index=["a", "b"], name="pdac_score"))
     assert list(frame.columns) == ["sample_id", "pdac_score"]
     assert list(frame["sample_id"]) == ["a", "b"]
-
-
-def test_the_shipped_model_experiment_is_valid_and_uses_a_frozen_dataset():
-    exp = load_experiment_config(resolve_experiment_path("model_frozen_pdac_vs_all"))
-    spec = load_dataset_config(exp.dataset).normalization
-    assert spec is not None and spec.mode == "frozen"
-
-
-@pytest.mark.slow
-@pytest.mark.skipif(not os.environ.get("PDAC_DATA_ROOT"), reason="needs the real data folder")
-def test_real_data_bundle_scores_the_validation_cohort_from_raw_counts():
-    root = Path(os.environ["PDAC_DATA_ROOT"])
-    exp = load_experiment_config(resolve_experiment_path("model_frozen_pdac_vs_all"))
-    genes = select_experiment_genes(exp)
-    ds = load_for_task(exp.dataset, exp.task)
-    bundle = train_bundle(ds, exp, genes)
-    raw = pd.read_csv(root / "pdac_genecount.csv", index_col=0)
-    bcc = list(ds.X.index[ds.validation_mask])
-
-    scores = predict_scores(raw[bcc], bundle)  # raw counts in, scores out
-    assert len(genes) == 36
-    assert auc(ds.y[bcc], scores) == pytest.approx(0.879, abs=0.01)
-
-    alone = predict_scores(raw[[bcc[0]]], bundle)  # one sample, no batch
-    assert alone.iloc[0] == pytest.approx(scores[bcc[0]], abs=1e-12)

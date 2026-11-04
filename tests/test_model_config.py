@@ -1,15 +1,7 @@
-from pathlib import Path
-
 import pytest
-import yaml
 
-from pdac_cfrna.model_config import load_model_config
-
-
-def _write(tmp_path: Path, content: dict) -> Path:
-    path = tmp_path / "m.yaml"
-    path.write_text(yaml.safe_dump(content), encoding="utf-8")
-    return path
+from pdac_cfrna.model_config import ModelConfig
+from pdac_cfrna.run_config import load_run_config
 
 
 def _valid() -> dict:
@@ -23,7 +15,7 @@ def _valid() -> dict:
 
 
 def test_shipped_paper_config_has_the_papers_settings():
-    cfg = load_model_config("random_forest_paper")
+    cfg = load_run_config().model
     assert cfg.n_estimators == 250
     assert cfg.max_features == 1
     assert cfg.min_samples_leaf == 1
@@ -31,13 +23,13 @@ def test_shipped_paper_config_has_the_papers_settings():
 
 
 def test_valid_file_loads(tmp_path):
-    cfg = load_model_config(_write(tmp_path, _valid()))
+    cfg = ModelConfig.model_validate(_valid())
     assert cfg.n_estimators == 10
 
 
 def test_seed_is_rejected_because_it_belongs_to_the_experiment(tmp_path):
     with pytest.raises(ValueError, match="seed"):
-        load_model_config(_write(tmp_path, {**_valid(), "seed": 42}))
+        ModelConfig.model_validate({**_valid(), "seed": 42})
 
 
 @pytest.mark.parametrize(
@@ -46,16 +38,11 @@ def test_seed_is_rejected_because_it_belongs_to_the_experiment(tmp_path):
 )
 def test_out_of_range_values_are_rejected(tmp_path, bad):
     with pytest.raises(ValueError):
-        load_model_config(_write(tmp_path, {**_valid(), **bad}))
+        ModelConfig.model_validate({**_valid(), **bad})
 
 
 def test_missing_required_key_is_rejected(tmp_path):
     content = _valid()
     del content["n_estimators"]
     with pytest.raises(ValueError, match="n_estimators"):
-        load_model_config(_write(tmp_path, content))
-
-
-def test_missing_file_is_rejected():
-    with pytest.raises(FileNotFoundError):
-        load_model_config("no_such_model")
+        ModelConfig.model_validate(content)

@@ -1,0 +1,8 @@
+# Default model: the random forest from Moore et al. 2025 (Methods, Machine learning experiments).
+# Change a setting for one run with --set model.<key>=<value>.
+name: random_forest_paper
+description: Random forest settings from the paper
+n_estimators: 250
+max_features: 1
+min_samples_leaf: 1
+bootstrap: true

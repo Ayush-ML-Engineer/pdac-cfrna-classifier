@@ -4,17 +4,12 @@ Run from the repo root:
     uv run python scripts/check_task_splits.py
 """
 
-from __future__ import annotations
+import argparse
 
-from pdac_cfrna.config import load_dataset_config
-from pdac_cfrna.data import Dataset, apply_task, load_dataset
-from pdac_cfrna.experiment import TASKS, load_experiment_config, resolve_experiment_path
-from pdac_cfrna.selection import select_de_genes
+from pdac_cfrna.experiment import TASKS
+from pdac_cfrna.run_config import add_config_arguments, config_from_args
+from pdac_cfrna.training import load_for_task, select_experiment_genes
 
-# The experiment whose settings (and task, PDAC vs all) define the gene list.
-SELECTION_EXPERIMENT = "de_selection_pdac_vs_all"
-
-# From the paper: task -> (train samples, train PDAC, test samples, test PDAC).
 EXPECTED = {
     "pdac_vs_benign": (68, 20, 44, 21),
     "pdac_vs_non_cancer": (143, 20, 78, 21),
@@ -22,32 +17,19 @@ EXPECTED = {
 }
 
 
-def load_for_task(dataset_name: str, task_name: str) -> Dataset:
-    """Load the dataset with one task's labels (and sample selection) applied."""
-    task = TASKS[task_name]
-    cfg = apply_task(load_dataset_config(dataset_name), task.class_map, task.unmapped)
-    return load_dataset(cfg)
-
-
 def main() -> None:
-    exp = load_experiment_config(resolve_experiment_path(SELECTION_EXPERIMENT))
+    parser = argparse.ArgumentParser(description=__doc__)
+    add_config_arguments(parser)
+    cfg = config_from_args(parser.parse_args())
 
-    # 1. Pick the genes ONCE: PDAC vs all, CEDAR (training) rows only.
-    ds_sel = load_for_task(exp.dataset, exp.task)
-    table = select_de_genes(
-        ds_sel.X[ds_sel.train_mask],
-        ds_sel.y[ds_sel.train_mask],
-        exp.variance_cutoff,
-        exp.alpha,
-        exp.log_variance,
-    )
-    genes = list(table.index[table["significant"]])
+    # 1. Pick the genes ONCE: PDAC vs all, training-cohort rows only.
+    genes = select_experiment_genes(cfg)
     print(f"Selected genes: {len(genes)}")
     assert len(genes) == 29, f"expected 29 genes, got {len(genes)}"
 
-    # 2. The same 29 genes are used for every task; only the labels and samples change.
+    # 2. From the paper: task -> (train samples, train PDAC, test samples, test PDAC).
     for task_name in TASKS:
-        ds = load_for_task(exp.dataset, task_name)
+        ds = load_for_task(cfg.dataset, task_name)
         X = ds.X[genes]
         X_train, y_train = X[ds.train_mask], ds.y[ds.train_mask]
         X_test, y_test = X[ds.validation_mask], ds.y[ds.validation_mask]

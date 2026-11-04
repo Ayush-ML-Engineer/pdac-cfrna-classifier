@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import platform
-import shutil
 import subprocess
 import time
 from collections.abc import Iterator
@@ -18,7 +17,7 @@ from typing import Any
 from filelock import FileLock
 
 from pdac_cfrna.config import REPO_ROOT
-from pdac_cfrna.experiment import ExperimentConfig
+from pdac_cfrna.run_config import RunConfig, dump_resolved
 
 RUNS_ROOT = REPO_ROOT / "runs"
 TRACKED_PACKAGES = ("numpy", "pandas", "scipy", "scikit-learn", "imbalanced-learn")
@@ -97,38 +96,27 @@ class Run:
     extra: dict[str, Any] = field(default_factory=dict)  # e.g. result counts, added by the caller
 
 
-def _relative_to_repo(path: Path, repo_root: Path) -> str:
-    try:
-        return str(path.resolve().relative_to(repo_root.resolve()))
-    except ValueError:
-        return str(path.resolve())
-
-
 @contextmanager
 def tracked_run(
-    exp_cfg: ExperimentConfig,
-    exp_yaml_path: Path,
+    cfg: RunConfig,
     runs_root: Path = RUNS_ROOT,
     repo_root: Path = REPO_ROOT,
     lock_timeout: float = -1,
 ) -> Iterator[Run]:
-    """Hold the lock, create the run folder, record inputs, and always record the outcome."""
     with run_lock(runs_root, lock_timeout):
         started = datetime.now().astimezone()
-        run_dir = create_run_dir(exp_cfg.name, runs_root, started)
-        shutil.copy2(exp_yaml_path, run_dir / "experiment_config.yaml")
-
+        run_dir = create_run_dir(cfg.name, runs_root, started)
+        dump_resolved(cfg, run_dir / "resolved_config.yaml")
         git = git_info(repo_root)
         diff = git.pop("diff")
         if git["dirty"]:
             (run_dir / "code_changes.diff").write_text(diff, encoding="utf-8")
-
         meta: dict[str, Any] = {
-            "experiment_name": exp_cfg.name,
-            "experiment_yaml": _relative_to_repo(exp_yaml_path, repo_root),
-            "task": exp_cfg.task,
-            "seed": exp_cfg.seed,
-            "config": exp_cfg.model_dump(),
+            "experiment_name": cfg.name,
+            "overrides": list(cfg.overrides),
+            "task": cfg.experiment.task,
+            "seed": cfg.experiment.seed,
+            "config": cfg.model_dump(mode="json"),
             "git": git,
             "started_at": started.isoformat(timespec="seconds"),
             "python": platform.python_version(),

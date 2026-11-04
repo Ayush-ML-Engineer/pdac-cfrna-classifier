@@ -1,6 +1,7 @@
 """Typed, validated configuration.
 
-A new dataset means a new YAML in ``configs/datasets/``, not new code.
+A new dataset means a new YAML in ``configs/dataset.yaml``, not new code.
+The parameters are changed per run with the overrides in run_config.py
 Paths may contain ``${ENV_VAR}`` references (e.g. ``${PDAC_DATA_ROOT}``),
 expanded at load time so no machine-specific path lives in git.
 """
@@ -12,12 +13,10 @@ import re
 from pathlib import Path
 from typing import Literal
 
-import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DATASET_CONFIG_DIR = REPO_ROOT / "configs" / "datasets"
 
 _ENV_VAR_PATTERN = re.compile(r"\$\{(\w+)\}")
 
@@ -134,16 +133,3 @@ class DatasetConfig(_Strict):
 def load_env() -> None:
     """Load .env from the repo root if present (never overrides real env vars)."""
     load_dotenv(REPO_ROOT / ".env", override=False)
-
-
-def load_dataset_config(name_or_path: str | Path) -> DatasetConfig:
-    """Load ``configs/datasets/<name>.yaml`` (or an explicit path) and validate it."""
-    load_env()
-    p = Path(name_or_path)
-    if not p.suffix:
-        p = DATASET_CONFIG_DIR / f"{name_or_path}.yaml"
-    if not p.is_file():
-        raise FileNotFoundError(f"Dataset config not found: {p}")
-    with p.open(encoding="utf-8") as fh:
-        raw = yaml.safe_load(fh)
-    return DatasetConfig.model_validate(raw)

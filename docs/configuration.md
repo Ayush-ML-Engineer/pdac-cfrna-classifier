@@ -22,7 +22,7 @@ quotes around any value that contains `[` `]`.
 uv run python scripts/run_paper_replication.py --set experiment.task=pdac_vs_benign
 
 # several changes, and a name for the run
-uv run python scripts/run_paper_replication.py --name frozen_vs_all \
+uv run python scripts/run_paper_replication.py --name frozen_pdac_vs_all \
     --set dataset.normalization.mode=frozen \
     --set "dataset.normalization.reference_cohorts=[CEDAR]"
 

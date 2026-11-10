@@ -89,8 +89,6 @@ def read_run_genes(run_dir: Path) -> RunGenes | None:
     if de_path.is_file():
         table = pd.read_csv(de_path, index_col="gene")
         genes = [str(g) for g in table.index[table["significant"].astype(bool)]]
-        excluded = set(meta.get("results", {}).get("excluded_genes") or [])
-        genes = [g for g in genes if g not in excluded]
         source = de_path.name
     elif model_path.is_file():
         genes = [str(g) for g in json.loads(model_path.read_text(encoding="utf-8"))["genes"]]

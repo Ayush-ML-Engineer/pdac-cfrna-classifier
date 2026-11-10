@@ -36,8 +36,7 @@ def main() -> None:
     with tracked_run(cfg) as run:
         # 1. Genes: chosen once, with the gene-selection task's labels, on training rows only.
         table = select_experiment_table(cfg)
-        selected = list(table.index[table["significant"]])
-        genes = selected
+        genes = list(table.index[table["significant"]])
         table.to_csv(run.dir / "de_genes.csv", index_label="gene")
 
         # 2. The experiment's own task: train on the training cohort, test on the validation one.
@@ -68,7 +67,6 @@ def main() -> None:
 
         run.extra.update(
             n_genes=len(genes),
-            excluded_genes=list(exp.exclude_genes),
             n_train=len(y_train),
             n_train_pdac=int(y_train.sum()),
             n_test=len(y_test),

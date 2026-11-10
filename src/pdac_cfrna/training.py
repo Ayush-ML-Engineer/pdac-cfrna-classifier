@@ -36,6 +36,12 @@ def select_experiment_table(cfg: RunConfig) -> pd.DataFrame:
     )
 
 
+def select_experiment_genes(cfg: RunConfig) -> list[str]:
+    """The genes of a run: the significant genes of the gene-selection table."""
+    table = select_experiment_table(cfg)
+    return list(table.index[table["significant"]])
+
+
 def train_bundle(
     ds: Dataset,
     cfg: RunConfig,

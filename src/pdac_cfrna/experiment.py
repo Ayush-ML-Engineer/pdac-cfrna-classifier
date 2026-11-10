@@ -65,8 +65,6 @@ class ExperimentConfig(BaseModel):
 
     # Synthetic PDAC samples added by SMOTE; null (None) balances the classes exactly.
     n_synthetic_pdac: int | None = Field(default=100, ge=0)
-    # Genes removed from the classifier after the gene selection (sensitivity analyses).
-    exclude_genes: list[str] = []
     n_seeds: int = Field(default=10, ge=1)
 
     @field_validator("task", "gene_selection_task")

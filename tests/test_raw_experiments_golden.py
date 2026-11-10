@@ -26,7 +26,6 @@ OWN_FACTORS = [
     f"dataset.normalization.factors={(PROCESSED_ROOT / 'updated_factors.csv').as_posix()}"
 ]
 BALANCED = ["experiment.n_synthetic_pdac=null"]
-NO_SEX_GENES = ["experiment.exclude_genes=[USP9Y, UTY, USP9X]"]
 
 
 def _run_experiment(set_args: list[str], task: str, n_seeds: int = 3) -> tuple[list[str], float]:
@@ -49,7 +48,6 @@ def _run_experiment(set_args: list[str], task: str, n_seeds: int = 3) -> tuple[l
 
 REFERENCE_AUC = {"pdac_vs_benign": 0.927, "pdac_vs_non_cancer": 0.932, "pdac_vs_all": 0.891}
 BALANCED_AUC = {"pdac_vs_benign": 0.922, "pdac_vs_non_cancer": 0.928, "pdac_vs_all": 0.893}
-NO_SEX_GENES_AUC = {"pdac_vs_benign": 0.887, "pdac_vs_non_cancer": 0.906, "pdac_vs_all": 0.855}
 
 
 @pytest.mark.slow

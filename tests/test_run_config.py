@@ -88,7 +88,7 @@ def test_there_is_exactly_one_default_file_per_section():
         ("experiment.n_synthetic_pdac=", ["experiment", "n_synthetic_pdac"], None),
         ("experiment.log_variance=true", ["experiment", "log_variance"], True),
         ("experiment.task=pdac_vs_benign", ["experiment", "task"], "pdac_vs_benign"),
-        ("experiment.exclude_genes=[A, B]", ["experiment", "exclude_genes"], ["A", "B"]),
+        ("experiment.variance_cutoff=2", ["experiment", "variance_cutoff"], 2),
         ("dataset.normalization=null", ["dataset", "normalization"], None),
         (f"dataset.matrix.path={DATA}/x.csv", ["dataset", "matrix", "path"], f"{DATA}/x.csv"),
     ],

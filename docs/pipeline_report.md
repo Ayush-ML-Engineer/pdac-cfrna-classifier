@@ -74,6 +74,6 @@ the CEDAR PDAC patients are male).
 ```bash
 uv sync
 uv run pytest
-uv run python scripts/run_paper_replication.py --name paper_vs_all
+uv run python scripts/run_paper_replication.py --name paper_pdac_vs_all
 uv run python scripts/summarize_runs.py --out reports/results_table.md
 ```

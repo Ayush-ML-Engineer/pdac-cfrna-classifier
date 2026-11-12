@@ -105,11 +105,16 @@ def main() -> None:
     args = parser.parse_args()
     cfg = config_from_args(args)
     norm = cfg.dataset.normalization
+
     if norm is None or norm.mode != "frozen":
         parser.error("add --set dataset.normalization.mode=frozen (see the docstring)")
+
     exp = cfg.experiment
-    if exp.gene_selection_task != exp.task:
-        parser.error("this script needs experiment.gene_selection_task to equal experiment.task")
+
+    if args.choose_on == "train" and exp.gene_selection_task != exp.task:
+        parser.error(
+            "--choose-on train needs experiment.gene_selection_task to equal experiment.task"
+        )
 
     with tracked_run(cfg) as run:
         ds = load_for_task(cfg.dataset, exp.task)

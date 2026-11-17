@@ -61,7 +61,7 @@ Outputs: see [data_contracts.md](data_contracts.md) section 5.
 
 | Script | Options | Meaning |
 | --- | --- | --- |
-| `scripts/predict.py` | `--model` (required), `--counts` (required), `--out` (required) | score a raw counts file (genes x samples) with a saved bundle; writes a scores CSV |
+| `scripts/predict.py` | `--model` (required), `--counts` (required), `--out` (required), `--threshold` or `--threshold-file` (optional, not both) | score a raw counts file (genes x samples) with a saved bundle; writes `sample_id,pdac_score`, plus `pdac_label` (1 = score at least the threshold) when a threshold is given. `--threshold-file` reads the `threshold` value of a `threshold.json` from `scripts/select_threshold.py`. |
 | `scripts/evaluate_external.py` | `--model`, `--counts`, `--out` (all required), `--threshold` (default 0.5) | the same, plus AUC, a bootstrap interval and a confusion table at `--threshold`; labels come from the sample names |
 
 The model file is the `model.joblib` written by `scripts/train_model.py`.

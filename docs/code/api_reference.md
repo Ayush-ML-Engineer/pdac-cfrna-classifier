@@ -358,8 +358,6 @@ cf-normalization (Moore et al. 2025): rescale the intrinsic and batch parts of e
 
 ## `src/pdac_cfrna/predict.py`
 
-Scoring raw count tables with a saved model bundle.
-
 - Uses: `bundle`, `normalization`
 - Used by: `scripts/evaluate_external.py`, `scripts/predict.py`
 
@@ -367,6 +365,10 @@ Scoring raw count tables with a saved model bundle.
 
 - `predict_scores(counts: pd.DataFrame, bundle: ModelBundle) -> pd.Series`
   PDAC score (probability between 0 and 1) for every sample of a raw counts table.
+- `label_scores(scores: pd.Series, threshold: float) -> pd.Series`
+  1 (PDAC) where the score is at least the threshold, else 0.
+- `read_threshold(path: str | Path) -> float`
+  The chosen threshold from a threshold.json written by scripts/select_threshold.py.
 
 ## `src/pdac_cfrna/reporting.py`
 

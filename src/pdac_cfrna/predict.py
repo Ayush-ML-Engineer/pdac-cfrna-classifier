@@ -1,6 +1,7 @@
-"""Scoring raw count tables with a saved model bundle."""
-
 from __future__ import annotations
+
+import json
+from pathlib import Path
 
 import pandas as pd
 
@@ -44,3 +45,33 @@ def predict_scores(counts: pd.DataFrame, bundle: ModelBundle) -> pd.Series:
     column = list(bundle.pipeline.classes_).index(1)
     scores = bundle.pipeline.predict_proba(X)[:, column]
     return pd.Series(scores, index=X.index, name="pdac_score")
+
+
+def label_scores(scores: pd.Series, threshold: float) -> pd.Series:
+    """1 (PDAC) where the score is at least the threshold, else 0.
+
+    The rule is the same as in the threshold tables (score >= threshold), so labels match the
+    confusion matrix that chose the threshold.
+
+    Raises:
+        ValueError: the threshold is not between 0 and 1.
+    """
+    if not 0.0 <= threshold <= 1.0:
+        raise ValueError(f"the threshold must be between 0 and 1, got {threshold}")
+    return (scores >= threshold).astype(int).rename("pdac_label")
+
+
+def read_threshold(path: str | Path) -> float:
+    """The chosen threshold from a threshold.json written by scripts/select_threshold.py.
+
+    Raises:
+        FileNotFoundError: the file does not exist.
+        ValueError: the file has no usable "threshold" value.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Threshold file not found: {path}")
+    value = json.loads(path.read_text(encoding="utf-8")).get("threshold")
+    if not isinstance(value, int | float) or isinstance(value, bool) or not 0 <= value <= 1:
+        raise ValueError(f"{path} has no threshold between 0 and 1 (found {value!r})")
+    return float(value)

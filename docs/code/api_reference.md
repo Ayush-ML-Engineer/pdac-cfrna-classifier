@@ -497,8 +497,15 @@ Plots for threshold selection: precision-recall curves and confusion matrices.
 
 - `plot_pr_curves(curves: dict[str, tuple[np.ndarray, np.ndarray]], threshold: float, path: Path) -> None`
   Precision-recall curve for each named (y, score) pair, with the chosen threshold marked.
-- `plot_confusion_matrices(sets: dict[str, tuple[np.ndarray, np.ndarray]], threshold: float, path: Path) -> None`
+- `plot_confusion_matrices(sets: dict[str, tuple[np.ndarray, np.ndarray]], threshold: float, path: Path, held_out: Mapping[str, Mapping[str, float]] | None=None) -> None`
   One confusion matrix per named (y, score) pair at the same threshold.
+
+**Private helpers**
+
+- `_grid(counts: Mapping[str, float]) -> np.ndarray`
+  Rows: true control, true PDAC. Columns: called control, called PDAC.
+- `_cell(value: float) -> str`
+  _no docstring_
 
 ## `src/pdac_cfrna/thresholds.py`
 

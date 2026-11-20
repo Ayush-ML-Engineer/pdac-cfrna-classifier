@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import matplotlib
@@ -52,16 +53,34 @@ def plot_pr_curves(
     plt.close(fig)
 
 
+def _grid(counts: Mapping[str, float]) -> np.ndarray:
+    """Rows: true control, true PDAC. Columns: called control, called PDAC."""
+    return np.array([[counts["tn"], counts["fp"]], [counts["fn"], counts["tp"]]], dtype=float)
+
+
+def _cell(value: float) -> str:
+    return f"{value:.0f}" if float(value).is_integer() else f"{value:.1f}"
+
+
 def plot_confusion_matrices(
     sets: dict[str, tuple[np.ndarray, np.ndarray]],
     threshold: float,
     path: Path,
+    held_out: Mapping[str, Mapping[str, float]] | None = None,
 ) -> None:
-    """One confusion matrix per named (y, score) pair at the same threshold."""
-    fig, axes = plt.subplots(1, len(sets), figsize=(4.2 * len(sets), 4), dpi=150, squeeze=False)
-    for ax, (name, (y, s)) in zip(axes[0], sets.items(), strict=True):
-        c = confusion_counts(y, s, threshold)
-        grid = np.array([[c["tn"], c["fp"]], [c["fn"], c["tp"]]])
+    """One confusion matrix per named (y, score) pair at the same threshold.
+
+    `held_out` adds panels of counts that were not computed at one fixed threshold: the key is
+    the whole panel title, the value the tp, fn, tn, fp counts (averages are shown with a
+    decimal). Used for the pooled held-out folds of the cross-validated estimate.
+    """
+    panels = [
+        (f"{name}\nthreshold {threshold:.2f}", _grid(confusion_counts(y, s, threshold)))
+        for name, (y, s) in sets.items()
+    ]
+    panels += [(title, _grid(counts)) for title, counts in (held_out or {}).items()]
+    fig, axes = plt.subplots(1, len(panels), figsize=(4.2 * len(panels), 4), dpi=150, squeeze=False)
+    for ax, (title, grid) in zip(axes[0], panels, strict=True):
         share = grid / grid.sum(axis=1, keepdims=True)
         ax.imshow(share, cmap="Blues", vmin=0, vmax=1)
         for i in range(2):
@@ -70,7 +89,7 @@ def plot_confusion_matrices(
                 ax.text(
                     j,
                     i,
-                    f"{grid[i, j]}\n({share[i, j]:.0%} of row)",
+                    f"{_cell(grid[i, j])}\n({share[i, j]:.0%} of row)",
                     ha="center",
                     va="center",
                     color=colour,
@@ -78,7 +97,7 @@ def plot_confusion_matrices(
                 )
         ax.set_xticks([0, 1], ["called control", "called PDAC"])
         ax.set_yticks([0, 1], ["true control", "true PDAC"])
-        ax.set_title(f"{name}\nthreshold {threshold:.2f}")
+        ax.set_title(title)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)

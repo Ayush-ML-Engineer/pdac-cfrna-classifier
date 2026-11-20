@@ -75,6 +75,10 @@ def _report_cv(estimate: dict[str, object], n_pos: int, n_neg: int) -> dict[str,
         low, high = wilson_interval(round(k), n)
         print(f"  {key:<12}{estimate[key]:.3f}  (approx. 95% CI {low:.3f} to {high:.3f})")
     print(f"  ppv         {estimate['ppv']:.3f}")
+    print(
+        "  held-out confusion (mean of the repeats): "
+        f"TP {c['tp']:.1f}  FN {c['fn']:.1f}  TN {c['tn']:.1f}  FP {c['fp']:.1f}"
+    )
     return {
         "threshold_median": float(np.median(t)),
         "threshold_min": float(t.min()),
@@ -82,6 +86,7 @@ def _report_cv(estimate: dict[str, object], n_pos: int, n_neg: int) -> dict[str,
         "sensitivity": estimate["sensitivity"],
         "specificity": estimate["specificity"],
         "ppv": estimate["ppv"],
+        "counts": estimate["counts"],
     }
 
 
@@ -111,9 +116,14 @@ def main() -> None:
 
     exp = cfg.experiment
 
-    if args.choose_on == "train" and exp.gene_selection_task != exp.task:
+    if (
+        args.choose_on == "train"
+        and args.gene_selection == "in_fold"
+        and exp.gene_selection_task != exp.task
+    ):
         parser.error(
-            "--choose-on train needs experiment.gene_selection_task to equal experiment.task"
+            "--gene-selection in_fold needs experiment.gene_selection_task to equal "
+            "experiment.task (in_fold re-selects genes with the task's labels)"
         )
 
     with tracked_run(cfg) as run:
@@ -150,6 +160,7 @@ def main() -> None:
             "n_final_genes": len(genes),
         }
         sets: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        held_out: dict[str, dict[str, float]] = {}
 
         if args.choose_on == "train":
             oof, n_genes = oof_scores(
@@ -199,12 +210,18 @@ def main() -> None:
                 y_v, s_v, args.rule, args.beta, args.target_sensitivity, args.folds, 20, exp.seed
             )
             results["validation_cv"] = _report_cv(estimate, int(y_v.sum()), int((1 - y_v).sum()))
+            t_chosen = float(np.median(np.array(estimate["thresholds"], dtype=float)))
+            title = (
+                "Validation, held-out folds\n(threshold chosen without them)\n"
+                f"median threshold {t_chosen:.2f}"
+            )
+            held_out[title] = dict(estimate["counts"])  # type: ignore[call-overload]
         sets["Validation"] = (y_v, s_v)
 
         results["threshold"] = threshold
         table.to_csv(run.dir / "threshold_table.csv", index=False)
         plot_pr_curves(sets, threshold, run.dir / "pr_curves.png")
-        plot_confusion_matrices(sets, threshold, run.dir / "confusion_matrices.png")
+        plot_confusion_matrices(sets, threshold, run.dir / "confusion_matrices.png", held_out)
         (run.dir / "threshold.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
         run.extra.update(results)
         print(f"\nWritten to {run.dir}")

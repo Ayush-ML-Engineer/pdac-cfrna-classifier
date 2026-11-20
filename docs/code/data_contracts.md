@@ -169,7 +169,7 @@ Other files, by script:
 `threshold.json` keys: `choose_on` (`validation` or `train`), `rule`, `n_final_genes`,
 `validation_apparent` (`counts` = tp/fn/tn/fp, `rates` = `[estimate, low, high]` Wilson interval
 for sensitivity, specificity, ppv, npv), `validation_cv` (`threshold_median`, `threshold_min`,
-`threshold_max`, `sensitivity`, `specificity`, `ppv`: the honest estimate from choosing the
+`threshold_max`, `sensitivity`, `specificity`, `ppv`, `counts`: the honest estimate from choosing the
 threshold on part of the samples and testing on the rest), and `threshold`, the chosen value.
 With `--choose-on train` the file has `gene_selection`, `genes_per_fold`, `training_oof` and
 `validation` (the threshold was locked beforehand) instead of the apparent and cv blocks.
